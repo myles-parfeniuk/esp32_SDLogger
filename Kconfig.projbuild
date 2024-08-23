@@ -1,0 +1,54 @@
+menu "esp32_SDLogger"
+
+    menu "GPIO Configuration"
+        
+        config ESP32_SDLOGGER_GPIO_CD
+            int "Card Detect GPIO NUM" 
+            range 0 50
+            default 4
+            help
+                Card detect GPIO pin.
+
+                    
+        config ESP32_SDLOGGER_GPIO_CS
+            int "Chip Select GPIO NUM" 
+            range 0 50
+            default 13
+            help
+                Chip select GPIO pin.
+
+        config ESP32_SDLOGGER_GPIO_MOSI
+            int "MOSI GPIO NUM" 
+            range 0 50
+            default 15
+            help
+                Master out, slave in GPIO pin (connected to SD card DI pin)
+
+        config ESP32_SDLOGGER_GPIO_MISO
+            int "MISO GPIO NUM" 
+            range 0 50
+            default 2
+            help
+                Master in, slave out GPIO pin (connected to SD card DO pin)
+
+        config ESP32_SDLOGGER_GPIO_SCLK
+            int "SCLK GPIO NUM" 
+            range 0 50
+            default 14
+            help
+                SPI clock GPIO pin
+
+    endmenu # GPIO Config
+
+    menu "SPI Configuration"
+
+        config ESP32_SDLOGGER_SCLK_SPEED_HZ
+            int "SCLK SPEED (HZ)" 
+            range 0 50000000
+            default 8000000
+            help
+                SPI clock speed.
+
+    endmenu #SPI Configuration
+
+endmenu
