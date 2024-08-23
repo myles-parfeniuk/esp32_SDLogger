@@ -59,9 +59,13 @@ bool SDLogger::init()
         return initialized;
     }
 
+    //sdmmc_card_init can take awhile to run, delay here to reset task watchdog and give time for init call
+    vTaskDelay(10/portTICK_PERIOD_MS); 
+
     if (card_hdl != cfg.sdmmc_host.slot)
         cfg.sdmmc_host.slot = card_hdl;
 
+    card.host.command_timeout_ms = 1000U;
     err = sdmmc_card_init(&cfg.sdmmc_host, &card);
     if (err != ESP_OK)
     {
@@ -303,7 +307,7 @@ bool SDLogger::open_file(File& file)
 
     strcpy(full_path, root_path);
     strcat(full_path, file.path);
-    
+
     file.stream = fopen(full_path, "w");
     if (file.stream == NULL)
     {
@@ -312,7 +316,7 @@ bool SDLogger::open_file(File& file)
     }
 
     open_files.push_back(&file);
-    file.is_open = true;
+    file.open = true;
     current_open_files++;
 
     return true;
@@ -341,7 +345,7 @@ bool SDLogger::close_file(File& file)
     {
         open_files.erase(open_files.begin() + idx);
         open_files.shrink_to_fit();
-        file.is_open = false;
+        file.open = false;
         file.stream = NULL;
     }
     else
@@ -358,7 +362,7 @@ void SDLogger::close_all_files()
     for (File* f : open_files)
     {
         fclose(f->stream);
-        f->is_open = false;
+        f->open = false;
         f->stream = NULL;
     }
 
@@ -366,7 +370,7 @@ void SDLogger::close_all_files()
     open_files.shrink_to_fit();
 }
 
-bool SDLogger::create_directory(const char* path)
+bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warning)
 {
     FRESULT res = FR_OK;
 
@@ -399,7 +403,8 @@ bool SDLogger::create_directory(const char* path)
             break;
 
         case FR_EXIST:
-            ESP_LOGW(TAG, "Create Directory Failure: Directory already exists. FRESULT: 0x%X", res);
+            if(!suppress_dir_exists_warning)
+                ESP_LOGW(TAG, "Create Directory Failure: Directory already exists. FRESULT: 0x%X", res);
 
         default:
 
@@ -451,7 +456,7 @@ bool SDLogger::build_path(const char* path)
             free(part);
 
             if (!directory_exists(path_str))
-                if (!create_directory(path_str))
+                if (!create_directory(path_str, true))
                     return false;
         }
 
@@ -475,7 +480,7 @@ bool SDLogger::build_path(const char* path)
         free(part);
 
         if (!directory_exists(path_str))
-            if (!create_directory(path_str))
+            if (!create_directory(path_str, true))
                 return false;
     }
 
@@ -487,7 +492,7 @@ bool SDLogger::write(File& file, const char* data)
     if (!usability_check("Write Failure"))
         return false;
 
-    if (!file.is_open)
+    if (!file.open)
     {
         ESP_LOGE(TAG, "Write Failure: File not open.");
         return false;
@@ -507,7 +512,7 @@ bool SDLogger::write_line(File& file, const char* line)
     if (!usability_check("Write Line Failure"))
         return false;
 
-    if (!file.is_open)
+    if (!file.open)
     {
         ESP_LOGE(TAG, "Write Line Failure: File not open.");
         return false;
@@ -667,7 +672,7 @@ bool SDLogger::usability_check(const char* SUB_TAG)
 }
 
 SDLogger::File::File(const char* path)
-    : is_open(false)
+    : open(false)
     , stream(NULL)
 {
     size_t length = strlen(path);
@@ -727,9 +732,8 @@ SDLogger::File::File(const char* path)
         return;
     }
 
-    if(strcmp(dir_path, "") != 0)
+    if (strcmp(dir_path, "") != 0)
         strcpy(this->directory_path, dir_path);
-        
 }
 
 SDLogger::File::~File()
@@ -739,4 +743,19 @@ SDLogger::File::~File()
 
     if (directory_path)
         delete[] directory_path;
+}
+
+bool SDLogger::File::is_open()
+{
+    return open;
+}
+
+const char* SDLogger::File::get_path()
+{
+    return path;
+}
+
+const char* SDLogger::File::get_directory_path()
+{
+    return directory_path;
 }

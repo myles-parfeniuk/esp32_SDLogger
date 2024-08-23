@@ -79,12 +79,17 @@ class SDLogger
             public:
                 File(const char *path);
                 ~File();
-                bool is_open;
+                bool is_open();
+                const char * get_path();
+                const char * get_directory_path();
+            private:
+                bool open;
                 FILE *stream;
                 char *path;
                 char *directory_path;
-            private:
                 static const constexpr char* TAG = "SDLogger::File";
+            
+            friend class SDLogger; 
         };
 
         SDLogger(sd_logger_config_t cfg = sd_logger_config_t());
@@ -100,7 +105,7 @@ class SDLogger
         bool open_file(File &file);
         bool close_file(File &file);
         void close_all_files();
-        bool create_directory(const char *path);
+        bool create_directory(const char *path, bool suppress_dir_exists_warning = false);
         bool directory_exists(const char *path);
         bool write(File &file, const char *data);
         bool write_line(File &file, const char *line);
