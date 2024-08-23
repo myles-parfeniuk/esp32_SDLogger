@@ -59,8 +59,8 @@ bool SDLogger::init()
         return initialized;
     }
 
-    //sdmmc_card_init can take awhile to run, delay here to reset task watchdog and give time for init call
-    vTaskDelay(10/portTICK_PERIOD_MS); 
+    // sdmmc_card_init can take awhile to run, delay here to reset task watchdog and give time for init call
+    vTaskDelay(10 / portTICK_PERIOD_MS);
 
     if (card_hdl != cfg.sdmmc_host.slot)
         cfg.sdmmc_host.slot = card_hdl;
@@ -87,11 +87,10 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     FRESULT res = FR_OK;
     pdrv = FF_DRV_NOT_USED;
 
-    // close all files here
-    close_all_files();
+    if(open_files.size() > 0)
+        close_all_files();
 
     this->max_open_files = max_open_files;
-    current_open_files = 0;
 
     if (!initialized)
     {
@@ -101,7 +100,7 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 
     root_path = static_cast<char*>(malloc(strlen(path) + 1));
 
-    if (root_path == NULL)
+    if (root_path == nullptr)
     {
         ESP_LOGE(TAG, "Mount Failure: No heap memory available for path.");
         return false;
@@ -141,12 +140,14 @@ bool SDLogger::unmount()
 {
     FRESULT res = FR_OK;
 
+    if(open_files.size() > 0)
+        close_all_files();
+
     if (fs)
-        res = f_mount(NULL, drv, 0); // unregister file system object and unmount
+        res = f_mount(nullptr, drv, 0); // unregister file system object and unmount
 
     esp_vfs_fat_unregister_path(root_path);
 
-    current_open_files = 0;
     mounted = false;
     return (res == FR_OK);
 }
@@ -193,7 +194,7 @@ bool SDLogger::format(size_t unit_size)
     }
 
     work_buff = ff_memalloc(work_buff_sz);
-    if (work_buff == NULL)
+    if (work_buff == nullptr)
     {
         ESP_LOGE(TAG, "Format Failure: No heap memory available for work buffer.");
         return false;
@@ -290,7 +291,7 @@ bool SDLogger::open_file(File& file)
     if (!usability_check("Open File Failure"))
         return false;
 
-    if (current_open_files + 1 > max_open_files)
+    if (open_files.size() + 1 > max_open_files)
     {
         ESP_LOGE(TAG, "Open File Failure: Max files already opened.");
         return false;
@@ -309,15 +310,14 @@ bool SDLogger::open_file(File& file)
     strcat(full_path, file.path);
 
     file.stream = fopen(full_path, "w");
-    if (file.stream == NULL)
+    if (file.stream == nullptr)
     {
         ESP_LOGE(TAG, "Open File Failure: f_open() returned nullptr.");
         return false;
     }
 
-    open_files.push_back(&file);
+    open_files.push_back(std::make_unique<File>(file));
     file.open = true;
-    current_open_files++;
 
     return true;
 }
@@ -330,10 +330,13 @@ bool SDLogger::close_file(File& file)
     if (!usability_check("Close File Failure"))
         return false;
 
-    if (current_open_files != 0)
-        for (int i = 0; i < current_open_files - 1; i++)
+    if (open_files.size() != 0)
+        for (int i = 0; i < open_files.size() - 1; i++)
         {
-            if (open_files[i]->stream == file.stream)
+
+            FILE* open_file_stream = open_files[i].get()->stream;
+
+            if (open_file_stream == file.stream)
             {
                 fclose(file.stream);
                 idx = i;
@@ -346,7 +349,7 @@ bool SDLogger::close_file(File& file)
         open_files.erase(open_files.begin() + idx);
         open_files.shrink_to_fit();
         file.open = false;
-        file.stream = NULL;
+        file.stream = nullptr;
     }
     else
     {
@@ -359,11 +362,11 @@ bool SDLogger::close_file(File& file)
 void SDLogger::close_all_files()
 {
 
-    for (File* f : open_files)
+    for (std::unique_ptr<File>& f : open_files)
     {
         fclose(f->stream);
         f->open = false;
-        f->stream = NULL;
+        f->stream = nullptr;
     }
 
     open_files.clear();
@@ -403,7 +406,7 @@ bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warni
             break;
 
         case FR_EXIST:
-            if(!suppress_dir_exists_warning)
+            if (!suppress_dir_exists_warning)
                 ESP_LOGW(TAG, "Create Directory Failure: Directory already exists. FRESULT: 0x%X", res);
 
         default:
@@ -422,7 +425,7 @@ bool SDLogger::directory_exists(const char* path)
 
     FRESULT res = FR_OK;
 
-    res = f_stat(path, NULL);
+    res = f_stat(path, nullptr);
 
     return (res == FR_OK);
 }
@@ -432,10 +435,10 @@ bool SDLogger::build_path(const char* path)
     const char* start = path;
     const char* end;
     size_t length;
-    char* part = NULL;
+    char* part = nullptr;
     char path_str[100] = "";
 
-    while ((end = strchr(start, '/')) != NULL)
+    while ((end = strchr(start, '/')) != nullptr)
     {
         length = end - start;
 
@@ -443,7 +446,7 @@ bool SDLogger::build_path(const char* path)
         {
             part = static_cast<char*>(malloc(length));
 
-            if (part == NULL)
+            if (part == nullptr)
             {
                 ESP_LOGE(TAG, "Build Path Failure: No heap memory available to parse path.");
                 return false;
@@ -463,12 +466,12 @@ bool SDLogger::build_path(const char* path)
         start = end + 1;
     }
 
-    if (start != NULL)
+    if (start != nullptr)
     {
 
         part = static_cast<char*>(malloc(strlen(start)));
 
-        if (part == NULL)
+        if (part == nullptr)
         {
             ESP_LOGE(TAG, "Build Path Failure: No heap memory available to parse path.");
             return false;
@@ -522,7 +525,7 @@ bool SDLogger::write_line(File& file, const char* line)
     temp_buffer_sz = line_length + 2;
     temp_buffer = new char[temp_buffer_sz];
 
-    if (temp_buffer == NULL)
+    if (temp_buffer == nullptr)
     {
         ESP_LOGE(TAG, "Write Line Failure: No heap memory available for line buffer.");
         return false;
@@ -553,36 +556,36 @@ bool SDLogger::parse_info(const char* info_buffer)
     if (!parse_info_field(info_buffer, "Speed", temp_buff, sizeof(temp_buff)))
         return false;
 
-    info.speed_mhz = strtof(temp_buff, NULL);
+    info.speed_mhz = strtof(temp_buff, nullptr);
 
     if (!parse_info_field(info_buffer, "Size", temp_buff, sizeof(temp_buff)))
         return false;
 
-    info.size_mb = strtoul(temp_buff, NULL, 10);
+    info.size_mb = strtoul(temp_buff, nullptr, 10);
 
     if (!parse_info_field(info_buffer, "bus_width", temp_buff, sizeof(temp_buff)))
         return false;
 
-    info.ssr_bus_width = static_cast<uint8_t>(strtoul(temp_buff, NULL, 10));
+    info.ssr_bus_width = static_cast<uint8_t>(strtoul(temp_buff, nullptr, 10));
 
     if (!parse_info_field(info_buffer, "ver", temp_buff, sizeof(temp_buff)))
         return false;
 
-    info.csd.ver = static_cast<uint8_t>(strtoul(temp_buff, NULL, 10));
+    info.csd.ver = static_cast<uint8_t>(strtoul(temp_buff, nullptr, 10));
 
     if (!parse_info_field(info_buffer, "sector_size", temp_buff, sizeof(temp_buff)))
         return false;
 
-    info.csd.sector_sz = static_cast<uint16_t>(strtoul(temp_buff, NULL, 10));
+    info.csd.sector_sz = static_cast<uint16_t>(strtoul(temp_buff, nullptr, 10));
 
     if (!parse_info_field(info_buffer, "capacity", temp_buff, sizeof(temp_buff)))
         return false;
 
-    info.csd.capacity = strtoull(temp_buff, NULL, 10);
+    info.csd.capacity = strtoull(temp_buff, nullptr, 10);
 
     if (!parse_info_field(info_buffer, "read_bl_len", temp_buff, sizeof(temp_buff)))
         return false;
-    info.csd.read_bl_len = static_cast<uint8_t>(strtoul(temp_buff, NULL, 10));
+    info.csd.read_bl_len = static_cast<uint8_t>(strtoul(temp_buff, nullptr, 10));
 
     info.initialized = true;
 
@@ -624,14 +627,14 @@ bool SDLogger::load_sd_info()
     char* buffer = static_cast<char*>(malloc(buffer_sz));
     FILE* memstream;
 
-    if (buffer == NULL)
+    if (buffer == nullptr)
     {
         ESP_LOGE(TAG, "Load Sd Info Failure: No heap memory available for info buffer.");
         return false;
     }
 
     memstream = fmemopen(buffer, buffer_sz, "w");
-    if (memstream == NULL)
+    if (memstream == nullptr)
     {
         ESP_LOGW(TAG, "Load Sd Info Failure: Failed to open memory stream.");
         free(buffer);
@@ -673,13 +676,13 @@ bool SDLogger::usability_check(const char* SUB_TAG)
 
 SDLogger::File::File(const char* path)
     : open(false)
-    , stream(NULL)
+    , stream(nullptr)
 {
     size_t length = strlen(path);
-    const char* start = NULL;
-    const char* end = NULL;
+    const char* start = nullptr;
+    const char* end = nullptr;
     size_t length_dir_path;
-    char* part = NULL;
+    char* part = nullptr;
     char dir_path[100] = "";
     char temp_path[100] = "";
 
@@ -699,7 +702,7 @@ SDLogger::File::File(const char* path)
     strcpy(temp_path, path);
     start = temp_path;
 
-    while ((end = strchr(start, '/')) != NULL)
+    while ((end = strchr(start, '/')) != nullptr)
     {
         length_dir_path = end - start;
 
@@ -707,7 +710,7 @@ SDLogger::File::File(const char* path)
         {
             part = static_cast<char*>(malloc(length_dir_path));
 
-            if (part == NULL)
+            if (part == nullptr)
             {
                 ESP_LOGE(TAG, "File Construction Failure: No heap memory available for parsing directory path.");
                 return;
@@ -726,7 +729,7 @@ SDLogger::File::File(const char* path)
 
     this->directory_path = new char[strlen(dir_path)];
 
-    if (this->directory_path == NULL)
+    if (this->directory_path == nullptr)
     {
         ESP_LOGE(TAG, "File Construction Failure: No heap memory available for directory path.");
         return;

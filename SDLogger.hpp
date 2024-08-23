@@ -9,6 +9,7 @@
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include <vector>
+#include <memory>
 
 // esp-idf includes
 #include "driver/gpio.h"
@@ -130,8 +131,7 @@ class SDLogger
         BYTE pdrv; 
         char drv[3] = {0, ':', 0};
         uint16_t max_open_files;
-        uint16_t current_open_files;
-        std::vector<File *> open_files;
+        std::vector<std::unique_ptr<File>> open_files;
 
         sd_info_t info;
 
