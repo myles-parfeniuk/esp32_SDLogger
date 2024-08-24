@@ -734,11 +734,17 @@ bool SDLogger::File::path_forbidden_char_check(const char* path)
             period_count++;
 
         if (period_count > 1)
+        {
+            ESP_LOGE(TAG, "File Initialization Failure: Invalid path, multiple '.' characters in path name.");
             return true;
+        }
 
         for (const char forbidden_char : forbidden_chars)
             if (path[i] == forbidden_char)
+            {
+                ESP_LOGE(TAG, "File Initialization Failure: Invalid path, forbidden characters in path name.");
                 return true;
+            }
     }
 
     return false;
@@ -762,10 +768,7 @@ bool SDLogger::File::create_path(const char* path)
     size_t length = strlen(path);
 
     if (path_forbidden_char_check(path))
-    {
-        ESP_LOGE(TAG, "File Initialization Failure: Forbidden characters in path name or multiple '.' characters.");
         return false;
-    }
 
     this->path = new char[length + 1];
     if (this->path == nullptr)
@@ -796,7 +799,7 @@ bool SDLogger::File::create_directory_path(char* dir_path)
     return true;
 }
 
-bool SDLogger::File::path_tokenize_parts(const char* path, char *dir_path, char *file_name)
+bool SDLogger::File::path_tokenize_parts(const char* path, char* dir_path, char* file_name)
 {
     const char* start = nullptr;
     const char* end = nullptr;
@@ -825,7 +828,7 @@ bool SDLogger::File::path_tokenize_parts(const char* path, char *dir_path, char 
         }
     }
 
-    return true; 
+    return true;
 }
 
 bool SDLogger::File::path_tokenize_part(const size_t part_length, char* output_path, const char* start)
@@ -858,7 +861,7 @@ bool SDLogger::File::path_parse(const char* path)
     if (!create_path(path))
         return false;
 
-    if(!path_tokenize_parts(path, dir_path, file_name))
+    if (!path_tokenize_parts(path, dir_path, file_name))
         return false;
 
     // copy directory path (w/o root directory) to file directory member
