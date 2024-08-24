@@ -9,6 +9,7 @@
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include <vector>
+#include <array>
 #include <memory>
 
 // esp-idf includes
@@ -78,12 +79,22 @@ class SDLogger
         class File
         {
             public:
-                File(const char *path);
+                File();
                 ~File();
+                bool init(const char * path); 
+                bool is_initialized();
                 bool is_open();
                 const char * get_path();
                 const char * get_directory_path();
             private:
+                bool path_tokenize_parts(const char* path, char *dir_path, char *file_name); 
+                bool path_tokenize_part(const size_t part_length, char *output_path, const char *start);
+                bool path_parse(const char *path);
+                bool path_forbidden_char_check(const char *path);
+                bool path_part_period_check(const char *part);
+                bool create_path(const char *path);
+                bool create_directory_path(char *dir_path);
+                bool initialized;
                 bool open;
                 FILE *stream;
                 char *path;

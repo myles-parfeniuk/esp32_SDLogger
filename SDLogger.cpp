@@ -87,7 +87,7 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     FRESULT res = FR_OK;
     pdrv = FF_DRV_NOT_USED;
 
-    if(open_files.size() > 0)
+    if (open_files.size() > 0)
         close_all_files();
 
     this->max_open_files = max_open_files;
@@ -140,7 +140,7 @@ bool SDLogger::unmount()
 {
     FRESULT res = FR_OK;
 
-    if(open_files.size() > 0)
+    if (open_files.size() > 0)
         close_all_files();
 
     if (fs)
@@ -291,6 +291,12 @@ bool SDLogger::open_file(File& file)
     if (!usability_check("Open File Failure"))
         return false;
 
+    if (!file.initialized)
+    {
+        ESP_LOGE(TAG, "Open File Failure: File not correctly initialized.");
+        return false;
+    }
+
     if (open_files.size() + 1 > max_open_files)
     {
         ESP_LOGE(TAG, "Open File Failure: Max files already opened.");
@@ -330,13 +336,17 @@ bool SDLogger::close_file(File& file)
     if (!usability_check("Close File Failure"))
         return false;
 
+    if (!file.initialized)
+    {
+        ESP_LOGE(TAG, "Close File Failure: File not correctly initialized.");
+        return false;
+    }
+
     if (open_files.size() != 0)
-        for (int i = 0; i < open_files.size() - 1; i++)
+        for (int i = 0; i < open_files.size(); i++)
         {
 
-            FILE* open_file_stream = open_files[i].get()->stream;
-
-            if (open_file_stream == file.stream)
+            if (strcmp(open_files[i]->path, file.path) == 0)
             {
                 fclose(file.stream);
                 idx = i;
@@ -353,7 +363,7 @@ bool SDLogger::close_file(File& file)
     }
     else
     {
-        ESP_LOGW(TAG, "Close File Failure:  No matching file found.");
+        ESP_LOGW(TAG, "Close File Failure:  No matching file found for path: %s", file.get_path());
     }
 
     return found;
@@ -495,6 +505,12 @@ bool SDLogger::write(File& file, const char* data)
     if (!usability_check("Write Failure"))
         return false;
 
+    if (!file.initialized)
+    {
+        ESP_LOGE(TAG, "Write Failure: File not correctly initialized.");
+        return false;
+    }
+
     if (!file.open)
     {
         ESP_LOGE(TAG, "Write Failure: File not open.");
@@ -514,6 +530,12 @@ bool SDLogger::write_line(File& file, const char* line)
 
     if (!usability_check("Write Line Failure"))
         return false;
+
+    if (!file.initialized)
+    {
+        ESP_LOGE(TAG, "Write Line Failure: File not correctly initialized.");
+        return false;
+    }
 
     if (!file.open)
     {
@@ -674,69 +696,11 @@ bool SDLogger::usability_check(const char* SUB_TAG)
     return true;
 }
 
-SDLogger::File::File(const char* path)
-    : open(false)
+SDLogger::File::File()
+    : initialized(false)
+    , open(false)
     , stream(nullptr)
 {
-    size_t length = strlen(path);
-    const char* start = nullptr;
-    const char* end = nullptr;
-    size_t length_dir_path;
-    char* part = nullptr;
-    char dir_path[100] = "";
-    char temp_path[100] = "";
-
-    this->path = new char[length + 1];
-
-    if (this->path == nullptr)
-    {
-        ESP_LOGE(TAG, "File Construction Failure: No heap memory available for path.");
-        return;
-    }
-    else
-    {
-        strcpy(this->path, "/");
-        strcat(this->path + 1, path);
-    }
-
-    strcpy(temp_path, path);
-    start = temp_path;
-
-    while ((end = strchr(start, '/')) != nullptr)
-    {
-        length_dir_path = end - start;
-
-        if (length > 0)
-        {
-            part = static_cast<char*>(malloc(length_dir_path));
-
-            if (part == nullptr)
-            {
-                ESP_LOGE(TAG, "File Construction Failure: No heap memory available for parsing directory path.");
-                return;
-            }
-
-            part[length_dir_path] = '\0';
-            strncpy(part, start, length_dir_path);
-            strcat(dir_path, "/");
-            strcat(dir_path, part);
-
-            free(part);
-        }
-
-        start = end + 1;
-    }
-
-    this->directory_path = new char[strlen(dir_path)];
-
-    if (this->directory_path == nullptr)
-    {
-        ESP_LOGE(TAG, "File Construction Failure: No heap memory available for directory path.");
-        return;
-    }
-
-    if (strcmp(dir_path, "") != 0)
-        strcpy(this->directory_path, dir_path);
 }
 
 SDLogger::File::~File()
@@ -746,6 +710,167 @@ SDLogger::File::~File()
 
     if (directory_path)
         delete[] directory_path;
+}
+
+bool SDLogger::File::init(const char* path)
+{
+    // reset fields if re-initializing
+    initialized = false;
+    open = false;
+
+    initialized = path_parse(path);
+
+    return initialized;
+}
+
+bool SDLogger::File::path_forbidden_char_check(const char* path)
+{
+    std::array<char, 8> forbidden_chars = {'\\', ':', '*', '?', '"', '<', '>', '|'};
+    uint8_t period_count = 0;
+
+    for (size_t i = 0; i < strlen(path); i++)
+    {
+        if (path[i] == '.')
+            period_count++;
+
+        if (period_count > 1)
+            return true;
+
+        for (const char forbidden_char : forbidden_chars)
+            if (path[i] == forbidden_char)
+                return true;
+    }
+
+    return false;
+}
+
+bool SDLogger::File::path_part_period_check(const char* part)
+{
+    uint8_t period_count = 0;
+
+    for (size_t i = 0; i < strlen(part); i++)
+    {
+        if (part[i] == '.')
+            return true;
+    }
+
+    return false;
+}
+
+bool SDLogger::File::create_path(const char* path)
+{
+    size_t length = strlen(path);
+
+    if (path_forbidden_char_check(path))
+    {
+        ESP_LOGE(TAG, "File Initialization Failure: Forbidden characters in path name or multiple '.' characters.");
+        return false;
+    }
+
+    this->path = new char[length + 1];
+    if (this->path == nullptr)
+    {
+        ESP_LOGE(TAG, "File Initialization Failure: No heap memory available for path.");
+        return false;
+    }
+
+    // copy full path (w/o root directory) to file path member
+    strcpy(this->path, "/");
+    strcat(this->path + 1, path);
+
+    return true;
+}
+
+bool SDLogger::File::create_directory_path(char* dir_path)
+{
+    this->directory_path = new char[strlen(dir_path)];
+    if (this->directory_path == nullptr)
+    {
+        ESP_LOGE(TAG, "File Initialization Failure: No heap memory available for directory path.");
+        return false;
+    }
+
+    if (strcmp(dir_path, "") != 0)
+        strcpy(this->directory_path, dir_path);
+
+    return true;
+}
+
+bool SDLogger::File::path_tokenize_parts(const char* path, char *dir_path, char *file_name)
+{
+    const char* start = nullptr;
+    const char* end = nullptr;
+
+    start = path;
+
+    if (strlen(path) > 0)
+        while ((end = strchr(start, '/')) != nullptr)
+        {
+            if (!path_tokenize_part(static_cast<size_t>(end - start), dir_path, start))
+                return false;
+
+            start = end + 1;
+        }
+
+    // check for final part
+    if (strlen(start) > 0)
+    {
+        if (!path_tokenize_part(strlen(start) + 1, file_name, start))
+            return false;
+
+        if (!path_part_period_check(file_name))
+        {
+            ESP_LOGE(TAG, "File Initialization Failure: Invalid path, '.' character must be final part of file path to indicate file extension.");
+            return false;
+        }
+    }
+
+    return true; 
+}
+
+bool SDLogger::File::path_tokenize_part(const size_t part_length, char* output_path, const char* start)
+{
+    char* part;
+
+    part = static_cast<char*>(malloc(part_length));
+
+    if (part == nullptr)
+    {
+        ESP_LOGE(TAG, "File Initialization Failure: No heap memory available for parsing directory path.");
+        return false;
+    }
+
+    part[part_length] = '\0';
+    strncpy(part, start, part_length);
+    strcat(output_path, "/");
+    strcat(output_path, part);
+
+    free(part);
+
+    return true;
+}
+
+bool SDLogger::File::path_parse(const char* path)
+{
+    char file_name[50] = "";
+    char dir_path[100] = "";
+
+    if (!create_path(path))
+        return false;
+
+    if(!path_tokenize_parts(path, dir_path, file_name))
+        return false;
+
+    // copy directory path (w/o root directory) to file directory member
+    if (!create_directory_path(dir_path))
+        return false;
+
+    return true;
+}
+
+bool SDLogger::File::is_initialized()
+{
+    return initialized;
 }
 
 bool SDLogger::File::is_open()
