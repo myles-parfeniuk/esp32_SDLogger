@@ -4,6 +4,7 @@ SDLogger::SDLogger(sd_logger_config_t cfg)
     : initialized(false)
     , mounted(false)
     , cfg(cfg)
+    , pdrv(FF_DRV_NOT_USED)
 {
     spi_bus_config_t spi_bus_cfg = {.mosi_io_num = cfg.io_mosi,
             .miso_io_num = cfg.io_miso,
@@ -30,14 +31,6 @@ bool SDLogger::init()
 {
     esp_err_t err = ESP_OK;
     int card_hdl = -1;
-
-    pdrv = FF_DRV_NOT_USED;
-
-    if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
-    {
-        ESP_LOGE(TAG, "Init Fail: Max volumes already mounted.");
-        return initialized;
-    }
 
     err = (cfg.sdmmc_host.init)();
     if (err != ESP_OK)
@@ -88,18 +81,23 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 {
     esp_err_t err = ESP_OK;
     FRESULT res = FR_OK;
-    pdrv = FF_DRV_NOT_USED;
-
-    if (open_files.size() > 0)
-        close_all_files();
-
-    this->max_open_files = max_open_files;
 
     if (!initialized)
     {
         ESP_LOGE(TAG, "Mount Failure: Card not initialized.");
         return false;
     }
+
+    if (mounted)
+    {
+        ESP_LOGE(TAG, "Mount Failure: Drive already mounted.");
+        return false;
+    }
+
+    if (open_files.size() > 0)
+        close_all_files();
+
+    this->max_open_files = max_open_files;
 
     root_path = static_cast<char*>(malloc(strlen(path) + 1));
 
@@ -111,9 +109,10 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 
     strcpy(root_path, path);
 
+    pdrv = FF_DRV_NOT_USED;
     if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
     {
-        ESP_LOGE(TAG, "Init Fail: Max volumes already mounted.");
+        ESP_LOGE(TAG, "Mount Failure: Max volumes already mounted.");
         free(root_path);
         return false;
     }
@@ -148,9 +147,10 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 bool SDLogger::unmount()
 {
     FRESULT res = FR_OK;
-    pdrv = ff_diskio_get_pdrv_card(&card);
-    if (pdrv == 0xFF)
+
+    if (!mounted)
     {
+        ESP_LOGW(TAG, "Unmount Warning: Drive already unmounted");
         return false;
     }
 
@@ -184,18 +184,9 @@ bool SDLogger::format(size_t unit_size)
     void* work_buff = nullptr;
     size_t alloc_unit_sz = 0;
 
-    pdrv = FF_DRV_NOT_USED;
-
     if (!initialized)
     {
         ESP_LOGE(TAG, "Format Failure: Card not initialized.");
-        return false;
-    }
-
-    pdrv = ff_diskio_get_pdrv_card(&card);
-    if (pdrv == FF_DRV_NOT_USED)
-    {
-        ESP_LOGE(TAG, "Format Failure: Card driver not registered.");
         return false;
     }
 
@@ -215,6 +206,19 @@ bool SDLogger::format(size_t unit_size)
 
     alloc_unit_sz = esp_vfs_fat_get_allocation_unit_size(card.csd.sector_size, unit_size);
 
+    if (!mounted)
+    {
+        pdrv = FF_DRV_NOT_USED;
+        if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
+        {
+            ESP_LOGE(TAG, "Format Failure: Max volumes already mounted, could not take sdmmc driver resource.");
+            return false;
+        }
+
+        ff_diskio_register_sdmmc(pdrv, &card);
+        drv[0] = static_cast<char>('0' + pdrv);
+    }
+
     // partition sd card
     LBA_t plist[] = {100, 0, 0, 0}; // format entire drive, see f_fdisk documentation on elm-chan.org
 
@@ -223,6 +227,10 @@ bool SDLogger::format(size_t unit_size)
     {
         print_fatfs_error(res, "Format Failure", "f_fdisk()");
         free(work_buff);
+
+        if (!mounted)
+            ff_diskio_unregister(pdrv);
+
         return false;
     }
 
@@ -233,9 +241,16 @@ bool SDLogger::format(size_t unit_size)
 
     if (res != FR_OK)
     {
-        ESP_LOGE(TAG, "Format Failure: f_mkfs() call failed (%d)", res);
+        print_fatfs_error(res, "Format Failure", "f_mkfs()");
+
+        if (!mounted)
+            ff_diskio_unregister(pdrv);
+
         return false;
     }
+
+    if (!mounted)
+        ff_diskio_unregister(pdrv);
 
     return true;
 }
