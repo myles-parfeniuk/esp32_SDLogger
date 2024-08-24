@@ -99,11 +99,9 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 
     this->max_open_files = max_open_files;
 
-    root_path = static_cast<char*>(malloc(strlen(path) + 1));
-
-    if (root_path == nullptr)
+    if (strlen(path) + 1 > MAX_ROOT_PATH_SZ)
     {
-        ESP_LOGE(TAG, "Mount Failure: No heap memory available for path.");
+        ESP_LOGE(TAG, "Mount Failure: Max root path length exceeded.");
         return false;
     }
 
@@ -113,7 +111,6 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
     {
         ESP_LOGE(TAG, "Mount Failure: Max volumes already mounted.");
-        free(root_path);
         return false;
     }
 
@@ -125,7 +122,6 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     {
         ESP_LOGE(TAG, "Mount Failure: esp_vfs_fat_register() call failed 0x(%x)", err);
         unmount();
-        free(root_path);
         return false;
     }
 
@@ -133,7 +129,6 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     if (res != FR_OK)
     {
         print_fatfs_error(res, "Mount Failure", "f_mount()");
-        free(root_path);
         return false;
     }
 
@@ -613,8 +608,8 @@ bool SDLogger::build_path(const char* path)
 
 bool SDLogger::write(SDFile file, const char* data)
 {
-    FRESULT res = FR_OK; 
-    UINT bytes_written; 
+    FRESULT res = FR_OK;
+    UINT bytes_written;
 
     if (!usability_check("Write Failure"))
         return false;
@@ -633,7 +628,7 @@ bool SDLogger::write(SDFile file, const char* data)
 
     // write here
     res = f_write(&file->stream, data, strlen(data), &bytes_written);
-    if(res != FR_OK)
+    if (res != FR_OK)
     {
         print_fatfs_error(res, "Write Failure", "f_write()");
     }

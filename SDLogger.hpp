@@ -76,7 +76,7 @@ class SDLogger
             public:
                 using SDFile = std::shared_ptr<File>;
 
-                static SDFile create(const char *path);
+                static SDFile create(const char* path);
                 ~File();
                 bool init(const char* path);
                 bool is_initialized();
@@ -104,7 +104,7 @@ class SDLogger
         };
 
         using SDFile = std::shared_ptr<File>;
-        
+
         SDLogger(sd_logger_config_t cfg = sd_logger_config_t());
         ~SDLogger();
         bool init();
@@ -125,13 +125,17 @@ class SDLogger
         const char* get_root_path();
 
     private:
+        static const constexpr size_t SD_SECTOR_SZ = 512U;
+        static const constexpr size_t MAX_ROOT_PATH_SZ = 40;
+        static const constexpr char* TAG = "SDLogger";
+
         bool load_sd_info();
         bool parse_info(const char* info_buffer);
         bool parse_info_field(const char* info_buffer, const char* key, char* output, size_t output_sz);
         bool usability_check(const char* SUB_TAG);
         bool build_path(const char* path);
-        void fatfs_res_to_str(FRESULT f_res, char *dest_str);
-        void print_fatfs_error(FRESULT f_res, const char *SUBTAG, const char *fatfs_fxn);
+        void fatfs_res_to_str(FRESULT f_res, char* dest_str);
+        void print_fatfs_error(FRESULT f_res, const char* SUBTAG, const char* fatfs_fxn);
         bool initialized;
         bool mounted;
         sd_logger_config_t cfg;
@@ -141,18 +145,13 @@ class SDLogger
         esp_vfs_fat_sdmmc_mount_config_t mount_cfg;
         FATFS* fs = NULL;
         sdmmc_card_t card;
-        char* root_path;
+        char root_path[MAX_ROOT_PATH_SZ];
         BYTE pdrv;
         char drv[3] = {0, ':', 0};
         uint16_t max_open_files;
         std::vector<SDFile> open_files;
 
         sd_info_t info;
-
-        static const constexpr size_t SD_SECTOR_SZ = 512U;
-        static const constexpr char* TAG = "SDLogger";
-
-        
 };
 
 typedef std::shared_ptr<SDLogger::File> SDFile;
