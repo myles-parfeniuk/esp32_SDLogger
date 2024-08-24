@@ -358,14 +358,14 @@ void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
     }
 }
 
-bool SDLogger::open_file(File& file)
+bool SDLogger::open_file(SDFile file)
 {
     char full_path[100];
 
     if (!usability_check("Open File Failure"))
         return false;
 
-    if (!file.initialized)
+    if (!file || !file->initialized)
     {
         ESP_LOGE(TAG, "Open File Failure: File not correctly initialized.");
         return false;
@@ -378,10 +378,10 @@ bool SDLogger::open_file(File& file)
     }
 
     // build directory path if it does not exist
-    if (strcmp(file.directory_path, "") != 0)
+    if (strcmp(file->directory_path, "") != 0)
     {
-        if (!path_exists(file.directory_path))
-            if (!build_path(file.directory_path))
+        if (!path_exists(file->directory_path))
+            if (!build_path(file->directory_path))
             {
                 ESP_LOGE(TAG, "Open File Failure: Directory does not exist and path failed to build.");
             }
@@ -389,24 +389,24 @@ bool SDLogger::open_file(File& file)
 
     // append root path to file path to create the full path
     strcpy(full_path, root_path);
-    strcat(full_path, file.path);
+    strcat(full_path, file->path);
 
     // open the file
-    file.stream = fopen(full_path, "w");
-    if (file.stream == nullptr)
+    file->stream = fopen(full_path, "w");
+    if (file->stream == nullptr)
     {
         ESP_LOGE(TAG, "Open File Failure: f_open() returned nullptr.");
         return false;
     }
 
     // add pointer newly opened file to open_files vector
-    open_files.push_back(std::make_unique<File>(file));
-    file.open = true;
+    open_files.push_back(file);
+    file->open = true;
 
     return true;
 }
 
-bool SDLogger::close_file(File& file)
+bool SDLogger::close_file(SDFile file)
 {
     bool found = false;
     int idx = 0;
@@ -414,7 +414,7 @@ bool SDLogger::close_file(File& file)
     if (!usability_check("Close File Failure"))
         return false;
 
-    if (!file.initialized)
+    if (!file || !file->initialized)
     {
         ESP_LOGE(TAG, "Close File Failure: File not correctly initialized.");
         return false;
@@ -424,9 +424,9 @@ bool SDLogger::close_file(File& file)
         for (int i = 0; i < open_files.size(); i++)
         {
 
-            if (strcmp(open_files[i]->path, file.path) == 0)
+            if (strcmp(open_files[i]->path, file->path) == 0)
             {
-                fclose(file.stream);
+                fclose(file->stream);
                 idx = i;
                 found = true;
             }
@@ -436,12 +436,12 @@ bool SDLogger::close_file(File& file)
     {
         open_files.erase(open_files.begin() + idx);
         open_files.shrink_to_fit();
-        file.open = false;
-        file.stream = nullptr;
+        file->open = false;
+        file->stream = nullptr;
     }
     else
     {
-        ESP_LOGW(TAG, "Close File Failure:  No matching file found for path: %s", file.get_path());
+        ESP_LOGW(TAG, "Close File Failure:  No matching file found for path: %s", file->get_path());
     }
 
     return found;
@@ -450,7 +450,7 @@ bool SDLogger::close_file(File& file)
 void SDLogger::close_all_files()
 {
 
-    for (std::unique_ptr<File>& f : open_files)
+    for (SDFile& f : open_files)
     {
         fclose(f->stream);
         f->open = false;
@@ -572,29 +572,29 @@ bool SDLogger::build_path(const char* path)
     return true;
 }
 
-bool SDLogger::write(File& file, const char* data)
+bool SDLogger::write(SDFile file, const char* data)
 {
     if (!usability_check("Write Failure"))
         return false;
 
-    if (!file.initialized)
+    if (!file || !file->initialized)
     {
         ESP_LOGE(TAG, "Write Failure: File not correctly initialized.");
         return false;
     }
 
-    if (!file.open)
+    if (!file->open)
     {
         ESP_LOGE(TAG, "Write Failure: File not open.");
         return false;
     }
 
-    fprintf(file.stream, data);
+    fprintf(file->stream, data);
 
     return true;
 }
 
-bool SDLogger::write_line(File& file, const char* line)
+bool SDLogger::write_line(SDFile file, const char* line)
 {
     size_t line_length;
     size_t temp_buffer_sz;
@@ -603,13 +603,13 @@ bool SDLogger::write_line(File& file, const char* line)
     if (!usability_check("Write Line Failure"))
         return false;
 
-    if (!file.initialized)
+    if (!file || !file->initialized)
     {
         ESP_LOGE(TAG, "Write Line Failure: File not correctly initialized.");
         return false;
     }
 
-    if (!file.open)
+    if (!file->open)
     {
         ESP_LOGE(TAG, "Write Line Failure: File not open.");
         return false;
@@ -630,7 +630,7 @@ bool SDLogger::write_line(File& file, const char* line)
     temp_buffer[line_length] = '\n';
     temp_buffer[line_length + 1] = '\0';
 
-    fprintf(file.stream, temp_buffer);
+    fprintf(file->stream, temp_buffer);
 
     delete[] temp_buffer;
 
@@ -768,10 +768,22 @@ bool SDLogger::usability_check(const char* SUB_TAG)
     return true;
 }
 
+SDFile SDLogger::File::create(const char* path)
+{
+    auto instance = SDFile(new File());
+
+    if (instance->init(path))
+        return instance;
+    else
+        return nullptr;
+}
+
 SDLogger::File::File()
     : initialized(false)
     , open(false)
     , stream(nullptr)
+    , path(nullptr)
+    , directory_path(nullptr)
 {
 }
 

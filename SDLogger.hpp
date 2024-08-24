@@ -79,7 +79,9 @@ class SDLogger
         class File
         {
             public:
-                File();
+                using SDFile = std::shared_ptr<File>;
+
+                static SDFile create(const char *path);
                 ~File();
                 bool init(const char* path);
                 bool is_initialized();
@@ -88,6 +90,7 @@ class SDLogger
                 const char* get_directory_path();
 
             private:
+                File();
                 bool path_tokenize_parts(const char* path, char* dir_path, char* file_name);
                 bool path_tokenize_part(const size_t part_length, char* output_path, const char* start);
                 bool path_parse(const char* path);
@@ -105,19 +108,21 @@ class SDLogger
                 friend class SDLogger;
         };
 
+        using SDFile = std::shared_ptr<File>;
+        
         SDLogger(sd_logger_config_t cfg = sd_logger_config_t());
         ~SDLogger();
         bool init();
         bool mount(size_t unit_size = 16 * 1024, int max_open_files = 5, const char* path = "/sdcard");
         bool unmount();
         bool format(size_t unit_size = 16 * 1024);
-        bool open_file(File& file);
-        bool close_file(File& file);
+        bool open_file(SDFile file);
+        bool close_file(SDFile file);
         void close_all_files();
         bool create_directory(const char* path, bool suppress_dir_exists_warning = false);
         bool path_exists(const char* path);
-        bool write(File& file, const char* data);
-        bool write_line(File& file, const char* line);
+        bool write(SDFile file, const char* data);
+        bool write_line(SDFile file, const char* line);
         bool get_info(sd_info_t& sd_info);
         void print_info();
         bool is_initialized();
@@ -145,10 +150,14 @@ class SDLogger
         BYTE pdrv;
         char drv[3] = {0, ':', 0};
         uint16_t max_open_files;
-        std::vector<std::unique_ptr<File>> open_files;
+        std::vector<SDFile> open_files;
 
         sd_info_t info;
 
         static const constexpr size_t SD_SECTOR_SZ = 512U;
         static const constexpr char* TAG = "SDLogger";
+
+        
 };
+
+typedef std::shared_ptr<SDLogger::File> SDFile;
