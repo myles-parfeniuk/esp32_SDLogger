@@ -125,7 +125,8 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     res = f_mount(fs, drv, 1);
     if (res != FR_OK)
     {
-        ESP_LOGE(TAG, "Mount Failure: f_mount() call failed to mount card (%d)", res);
+        char res_str[40];
+        print_fatfs_error(res, "Mount Failure", "f_mount()");
         return false;
     }
 
@@ -202,15 +203,18 @@ bool SDLogger::format(size_t unit_size)
 
     alloc_unit_sz = esp_vfs_fat_get_allocation_unit_size(card.csd.sector_size, unit_size);
 
+    // partition sd card
     LBA_t plist[] = {100, 0, 0, 0}; // format entire drive, see f_fdisk documentation on elm-chan.org
+    
     res = f_fdisk(pdrv, plist, work_buff);
     if (res != FR_OK)
     {
-        ESP_LOGE(TAG, "Format Failed: f_fdisk() call failed, FRESULT: (%d)", res);
+        print_fatfs_error(res, "Format Failure", "f_fdisk()");
         free(work_buff);
         return false;
     }
 
+    // make the file system
     const MKFS_PARM opt = {static_cast<BYTE>(FM_ANY), 0, 0, 0, alloc_unit_sz};
     res = f_mkfs(drv, &opt, work_buff, work_buff_sz);
     free(work_buff);
@@ -226,17 +230,8 @@ bool SDLogger::format(size_t unit_size)
 
 bool SDLogger::get_info(sd_info_t& sd_info)
 {
-    if (!initialized)
-    {
-        ESP_LOGE(TAG, "Get Info Failure: Card not initialized.");
+    if (!usability_check("Get Info Failure"))
         return false;
-    }
-
-    if (!mounted)
-    {
-        ESP_LOGE(TAG, "Get Info Failure: No card mounted.");
-        return false;
-    }
 
     if (!info.initialized)
     {
@@ -278,10 +273,87 @@ void SDLogger::print_info()
 
 const char* SDLogger::get_root_path()
 {
-    if (!initialized)
+    if (!usability_check("Get Root Path Failure"))
         return nullptr;
     else
         return root_path;
+}
+
+ void SDLogger::print_fatfs_error(FRESULT f_res, const char *SUBTAG, const char *fatfs_fxn)
+ {
+    char res_str[40];
+    fatfs_res_to_str(f_res, res_str);
+    ESP_LOGE(TAG, "%s: %s did not return FR_OK, FRESULT: %s", SUBTAG, fatfs_fxn, res_str);
+ }
+
+void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
+{
+    switch (f_res)
+    {
+    case FR_OK:
+        sprintf(dest_str, "FR_OK");
+        break;
+    case FR_DISK_ERR:
+        sprintf(dest_str, "FR_DISK_ERR");
+        break;
+    case FR_INT_ERR:
+        sprintf(dest_str, "FR_INT_ERR");
+        break;
+    case FR_NOT_READY:
+        sprintf(dest_str, "FR_NOT_READY");
+        break;
+    case FR_NO_FILE:
+        sprintf(dest_str, "FR_NO_FILE");
+        break;
+    case FR_NO_PATH:
+        sprintf(dest_str, "FR_NO_PATH");
+        break;
+    case FR_INVALID_NAME:
+        sprintf(dest_str, "FR_INVALID_NAME");
+        break;
+    case FR_DENIED:
+        sprintf(dest_str, "FR_DENIED");
+        break;
+    case FR_EXIST:
+        sprintf(dest_str, "FR_EXIST");
+        break;
+    case FR_INVALID_OBJECT:
+        sprintf(dest_str, "FR_INVALID_OBJECT");
+        break;
+    case FR_WRITE_PROTECTED:
+        sprintf(dest_str, "FR_WRITE_PROTECTED");
+        break;
+    case FR_INVALID_DRIVE:
+        sprintf(dest_str, "FR_INVALID_DRIVE");
+        break;
+    case FR_NOT_ENABLED:
+        sprintf(dest_str, "FR_NOT_ENABLED");
+        break;
+    case FR_NO_FILESYSTEM:
+        sprintf(dest_str, "FR_NO_FILESYSTEM");
+        break;
+    case FR_MKFS_ABORTED:
+        sprintf(dest_str, "FR_MKFS_ABORTED");
+        break;
+    case FR_TIMEOUT:
+        sprintf(dest_str, "FR_TIMEOUT");
+        break;
+    case FR_LOCKED:
+        sprintf(dest_str, "FR_LOCKED");
+        break;
+    case FR_NOT_ENOUGH_CORE:
+        sprintf(dest_str, "FR_NOT_ENOUGH_CORE");
+        break;
+    case FR_TOO_MANY_OPEN_FILES:
+        sprintf(dest_str, "FR_TOO_MANY_OPEN_FILES");
+        break;
+    case FR_INVALID_PARAMETER:
+        sprintf(dest_str, "FR_INVALID_PARAMETER");
+        break;
+    default:
+        sprintf(dest_str, "UNKNOWN_CODE");
+        break;
+    }
 }
 
 bool SDLogger::open_file(File& file)
@@ -303,18 +375,21 @@ bool SDLogger::open_file(File& file)
         return false;
     }
 
+    // build directory path if it does not exist
     if (strcmp(file.directory_path, "") != 0)
     {
-        if (!directory_exists(file.directory_path))
+        if (!path_exists(file.directory_path))
             if (!build_path(file.directory_path))
             {
                 ESP_LOGE(TAG, "Open File Failure: Directory does not exist and path failed to build.");
             }
     }
 
+    // append root path to file path to create the full path
     strcpy(full_path, root_path);
     strcat(full_path, file.path);
 
+    // open the file
     file.stream = fopen(full_path, "w");
     if (file.stream == nullptr)
     {
@@ -322,6 +397,7 @@ bool SDLogger::open_file(File& file)
         return false;
     }
 
+    // add pointer newly opened file to open_files vector
     open_files.push_back(std::make_unique<File>(file));
     file.open = true;
 
@@ -406,21 +482,15 @@ bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warni
             }
             break;
 
-        case FR_INVALID_NAME:
-            ESP_LOGE(TAG, "Create Directory Failure: Invalid name, path length exceeded (FF_MAX_LFN) or encoding error.  FRESULT: 0x%X", res);
-            return false;
-            break;
-
-        case FR_DENIED:
-            ESP_LOGE(TAG, "Create Directory Failure: Denied write, file most likely read only or opened without FA_WRITE.  FRESULT: 0x%X", res);
-            break;
-
         case FR_EXIST:
             if (!suppress_dir_exists_warning)
-                ESP_LOGW(TAG, "Create Directory Failure: Directory already exists. FRESULT: 0x%X", res);
+                ESP_LOGW(TAG, "Create Directory Warning: Directory already exists.");
+            return true;
+            break;
 
         default:
-
+            print_fatfs_error(res, "Create Directory Failure", "f_mkdir()");
+            return false;
             break;
         }
     }
@@ -428,9 +498,9 @@ bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warni
     return true;
 }
 
-bool SDLogger::directory_exists(const char* path)
+bool SDLogger::path_exists(const char* path)
 {
-    if (!usability_check("Directory Existence Check Failure"))
+    if (!usability_check("Path Existence Check Failure"))
         return false;
 
     FRESULT res = FR_OK;
@@ -468,7 +538,7 @@ bool SDLogger::build_path(const char* path)
             strcat(path_str, part);
             free(part);
 
-            if (!directory_exists(path_str))
+            if (!path_exists(path_str))
                 if (!create_directory(path_str, true))
                     return false;
         }
@@ -492,7 +562,7 @@ bool SDLogger::build_path(const char* path)
         strcat(path_str, part);
         free(part);
 
-        if (!directory_exists(path_str))
+        if (!path_exists(path_str))
             if (!create_directory(path_str, true))
                 return false;
     }
