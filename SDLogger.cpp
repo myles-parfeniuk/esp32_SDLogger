@@ -111,22 +111,24 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
     {
         ESP_LOGE(TAG, "Init Fail: Max volumes already mounted.");
+        free(root_path);
         return false;
     }
 
     err = esp_vfs_fat_register(root_path, drv, max_open_files, &fs);
     if (err != ESP_OK)
     {
-        unmount();
         ESP_LOGE(TAG, "Mount Failure: esp_vfs_fat_register() call failed 0x(%x)", err);
+        unmount();
+        free(root_path);
         return false;
     }
 
     res = f_mount(fs, drv, 1);
     if (res != FR_OK)
     {
-        char res_str[40];
         print_fatfs_error(res, "Mount Failure", "f_mount()");
+        free(root_path);
         return false;
     }
 
@@ -205,7 +207,7 @@ bool SDLogger::format(size_t unit_size)
 
     // partition sd card
     LBA_t plist[] = {100, 0, 0, 0}; // format entire drive, see f_fdisk documentation on elm-chan.org
-    
+
     res = f_fdisk(pdrv, plist, work_buff);
     if (res != FR_OK)
     {
@@ -279,12 +281,12 @@ const char* SDLogger::get_root_path()
         return root_path;
 }
 
- void SDLogger::print_fatfs_error(FRESULT f_res, const char *SUBTAG, const char *fatfs_fxn)
- {
+void SDLogger::print_fatfs_error(FRESULT f_res, const char* SUBTAG, const char* fatfs_fxn)
+{
     char res_str[40];
     fatfs_res_to_str(f_res, res_str);
     ESP_LOGE(TAG, "%s: %s did not return FR_OK, FRESULT: %s", SUBTAG, fatfs_fxn, res_str);
- }
+}
 
 void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
 {
