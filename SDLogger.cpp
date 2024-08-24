@@ -59,23 +59,26 @@ bool SDLogger::init()
         return initialized;
     }
 
-    // sdmmc_card_init can take awhile to run, delay here to reset task watchdog and give time for init call
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-
     if (card_hdl != cfg.sdmmc_host.slot)
         cfg.sdmmc_host.slot = card_hdl;
 
-    card.host.command_timeout_ms = 1000U;
-    err = sdmmc_card_init(&cfg.sdmmc_host, &card);
+    card.host.command_timeout_ms = 4000U;
+
+    for (int trials = 0; trials < 3; trials++)
+    {
+        // sdmmc_card_init can take awhile to run, delay here to reset task watchdog and give time for init call
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+        err = sdmmc_card_init(&cfg.sdmmc_host, &card);
+
+        if (err == ESP_OK)
+            break;
+    }
+
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Init Failure: sdmmc_card_init() call failure.");
         return initialized;
     }
-
-    ff_diskio_register_sdmmc(pdrv, &card);
-    ESP_LOGI(TAG, "using pdrv=%i", pdrv);
-    drv[0] = static_cast<char>('0' + pdrv);
 
     initialized = true;
     return initialized;
@@ -115,6 +118,9 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
         return false;
     }
 
+    ff_diskio_register_sdmmc(pdrv, &card);
+    drv[0] = static_cast<char>('0' + pdrv);
+
     err = esp_vfs_fat_register(root_path, drv, max_open_files, &fs);
     if (err != ESP_OK)
     {
@@ -142,13 +148,18 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 bool SDLogger::unmount()
 {
     FRESULT res = FR_OK;
+    pdrv = ff_diskio_get_pdrv_card(&card);
+    if (pdrv == 0xFF)
+    {
+        return false;
+    }
 
     if (open_files.size() > 0)
         close_all_files();
 
-    if (fs)
-        res = f_mount(nullptr, drv, 0); // unregister file system object and unmount
+    res = f_mount(nullptr, drv, 0); // unregister file system object and unmount
 
+    ff_diskio_unregister(pdrv);
     esp_vfs_fat_unregister_path(root_path);
 
     mounted = false;
@@ -188,8 +199,7 @@ bool SDLogger::format(size_t unit_size)
         return false;
     }
 
-    // unmount
-    res = f_mount(0, drv, 0);
+    res = f_mount(nullptr, drv, 0);
     if (res != FR_OK)
     {
         ESP_LOGE(TAG, "Format Failure: Unmount failed (%d)", res);
