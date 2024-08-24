@@ -386,6 +386,7 @@ void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
 bool SDLogger::open_file(SDFile file)
 {
     char full_path[100];
+    FRESULT res;
 
     if (!usability_check("Open File Failure"))
         return false;
@@ -417,10 +418,10 @@ bool SDLogger::open_file(SDFile file)
     strcat(full_path, file->path);
 
     // open the file
-    file->stream = fopen(full_path, "w");
-    if (file->stream == nullptr)
+    res = f_open(&file->stream, file->path, FA_WRITE | FA_CREATE_ALWAYS);
+    if (res != FR_OK)
     {
-        ESP_LOGE(TAG, "Open File Failure: f_open() returned nullptr.");
+        print_fatfs_error(res, "Open File Failure", "f_open()");
         return false;
     }
 
@@ -435,6 +436,7 @@ bool SDLogger::close_file(SDFile file)
 {
     bool found = false;
     int idx = 0;
+    FRESULT res = FR_OK;
 
     if (!usability_check("Close File Failure"))
         return false;
@@ -451,7 +453,11 @@ bool SDLogger::close_file(SDFile file)
 
             if (strcmp(open_files[i]->path, file->path) == 0)
             {
-                fclose(file->stream);
+                res = f_close(&file->stream);
+                if (res != FR_OK)
+                {
+                    print_fatfs_error(res, "Close File Failure", "f_close()");
+                }
                 idx = i;
                 found = true;
             }
@@ -462,7 +468,6 @@ bool SDLogger::close_file(SDFile file)
         open_files.erase(open_files.begin() + idx);
         open_files.shrink_to_fit();
         file->open = false;
-        file->stream = nullptr;
     }
     else
     {
@@ -472,18 +477,27 @@ bool SDLogger::close_file(SDFile file)
     return found;
 }
 
-void SDLogger::close_all_files()
+bool SDLogger::close_all_files()
 {
+    FRESULT res = FR_OK;
 
     for (SDFile& f : open_files)
     {
-        fclose(f->stream);
+        res = f_close(&f->stream);
+
+        if (res != FR_OK)
+        {
+            print_fatfs_error(res, "Close All Files Failure", "f_close()");
+            return false;
+        }
+
         f->open = false;
-        f->stream = nullptr;
     }
 
     open_files.clear();
     open_files.shrink_to_fit();
+
+    return true;
 }
 
 bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warning)
@@ -599,6 +613,9 @@ bool SDLogger::build_path(const char* path)
 
 bool SDLogger::write(SDFile file, const char* data)
 {
+    FRESULT res = FR_OK; 
+    UINT bytes_written; 
+
     if (!usability_check("Write Failure"))
         return false;
 
@@ -614,7 +631,12 @@ bool SDLogger::write(SDFile file, const char* data)
         return false;
     }
 
-    fprintf(file->stream, data);
+    // write here
+    res = f_write(&file->stream, data, strlen(data), &bytes_written);
+    if(res != FR_OK)
+    {
+        print_fatfs_error(res, "Write Failure", "f_write()");
+    }
 
     return true;
 }
@@ -624,6 +646,8 @@ bool SDLogger::write_line(SDFile file, const char* line)
     size_t line_length;
     size_t temp_buffer_sz;
     char* temp_buffer;
+    FRESULT res;
+    UINT bytes_written;
 
     if (!usability_check("Write Line Failure"))
         return false;
@@ -655,9 +679,14 @@ bool SDLogger::write_line(SDFile file, const char* line)
     temp_buffer[line_length] = '\n';
     temp_buffer[line_length + 1] = '\0';
 
-    fprintf(file->stream, temp_buffer);
-
+    res = f_write(&file->stream, temp_buffer, strlen(temp_buffer), &bytes_written);
     delete[] temp_buffer;
+
+    if (res != FR_OK)
+    {
+        print_fatfs_error(res, "Write Line Failure", "f_write()");
+        return false;
+    }
 
     return true;
 }
@@ -806,7 +835,6 @@ SDFile SDLogger::File::create(const char* path)
 SDLogger::File::File()
     : initialized(false)
     , open(false)
-    , stream(nullptr)
     , path(nullptr)
     , directory_path(nullptr)
 {

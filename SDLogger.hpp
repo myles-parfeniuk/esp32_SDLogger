@@ -3,11 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <sys/unistd.h>
-#include <sys/stat.h>
 #include <vector>
 #include <array>
 #include <memory>
@@ -100,7 +95,7 @@ class SDLogger
                 bool create_directory_path(char* dir_path);
                 bool initialized;
                 bool open;
-                FILE* stream;
+                FIL stream;
                 char* path;
                 char* directory_path;
                 static const constexpr char* TAG = "SDLogger::File";
@@ -118,7 +113,7 @@ class SDLogger
         bool format(size_t unit_size = 16 * 1024);
         bool open_file(SDFile file);
         bool close_file(SDFile file);
-        void close_all_files();
+        bool close_all_files();
         bool create_directory(const char* path, bool suppress_dir_exists_warning = false);
         bool path_exists(const char* path);
         bool write(SDFile file, const char* data);
