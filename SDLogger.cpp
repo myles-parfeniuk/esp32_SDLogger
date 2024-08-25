@@ -29,13 +29,15 @@ SDLogger::~SDLogger()
 
 bool SDLogger::init()
 {
+    const char* SUB_TAG = "SD->init()";
+
     esp_err_t err = ESP_OK;
     int card_hdl = -1;
 
     err = (cfg.sdmmc_host.init)();
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Init Fail: Host init failed.");
+        ESP_LOGE(TAG, "%s: Host init failed.", SUB_TAG);
         return initialized;
     }
 
@@ -48,7 +50,7 @@ bool SDLogger::init()
         else
             (cfg.sdmmc_host.deinit)();
 
-        ESP_LOGE(TAG, "Init Failure: Slot init failed.");
+        ESP_LOGE(TAG, "%s: Slot init failed.", SUB_TAG);
         return initialized;
     }
 
@@ -69,7 +71,7 @@ bool SDLogger::init()
 
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Init Failure: sdmmc_card_init() call failure.");
+        ESP_LOGE(TAG, "%s: sdmmc_card_init() call failure.", SUB_TAG);
         return initialized;
     }
 
@@ -79,18 +81,20 @@ bool SDLogger::init()
 
 bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 {
+    const char* SUB_TAG = "SD->mount()";
+
     esp_err_t err = ESP_OK;
     FRESULT res = FR_OK;
 
     if (!initialized)
     {
-        ESP_LOGE(TAG, "Mount Failure: Card not initialized.");
+        ESP_LOGE(TAG, "%s: Card not initialized.", SUB_TAG);
         return false;
     }
 
     if (mounted)
     {
-        ESP_LOGE(TAG, "Mount Failure: Drive already mounted.");
+        ESP_LOGE(TAG, "%s: Drive already mounted.", SUB_TAG);
         return false;
     }
 
@@ -101,7 +105,7 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 
     if (strlen(path) + 1 > MAX_ROOT_PATH_SZ)
     {
-        ESP_LOGE(TAG, "Mount Failure: Max root path length exceeded.");
+        ESP_LOGE(TAG, "%s: Max root path length exceeded.", SUB_TAG);
         return false;
     }
 
@@ -110,7 +114,7 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     pdrv = FF_DRV_NOT_USED;
     if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
     {
-        ESP_LOGE(TAG, "Mount Failure: Max volumes already mounted.");
+        ESP_LOGE(TAG, "%s: Max volumes already mounted.", SUB_TAG);
         return false;
     }
 
@@ -120,7 +124,7 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     err = esp_vfs_fat_register(root_path, drv, max_open_files, &fs);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Mount Failure: esp_vfs_fat_register() call failed 0x(%x)", err);
+        ESP_LOGE(TAG, "%s: esp_vfs_fat_register() call failed 0x(%x)", SUB_TAG, err);
         unmount();
         return false;
     }
@@ -128,24 +132,25 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
     res = f_mount(fs, drv, 1);
     if (res != FR_OK)
     {
-        print_fatfs_error(res, "Mount Failure", "f_mount()");
+        print_fatfs_error(res, SUB_TAG, "f_mount()");
         return false;
     }
 
     mounted = true;
 
-    load_sd_info(); // ignore return statement, info can fail to load but card can still be mounted and usable
+    load_info(); // ignore return statement, info can fail to load but card can still be mounted and usable
 
     return true;
 }
 
 bool SDLogger::unmount()
 {
+    const char* SUB_TAG = "SD->unmount()";
     FRESULT res = FR_OK;
 
     if (!mounted)
     {
-        ESP_LOGW(TAG, "Unmount Warning: Drive already unmounted");
+        ESP_LOGW(TAG, "%s: Drive already unmounted", SUB_TAG);
         return false;
     }
 
@@ -154,10 +159,17 @@ bool SDLogger::unmount()
 
     res = f_mount(nullptr, drv, 0); // unregister file system object and unmount
 
-    ff_diskio_unregister(pdrv);
-    esp_vfs_fat_unregister_path(root_path);
+    if (res != FR_OK)
+    {
+        print_fatfs_error(res, SUB_TAG, "f_mount()");
+    }
+    else
+    {
+        ff_diskio_unregister(pdrv);
+        esp_vfs_fat_unregister_path(root_path);
+        mounted = false;
+    }
 
-    mounted = false;
     return (res == FR_OK);
 }
 
@@ -173,6 +185,7 @@ bool SDLogger::is_initialized()
 
 bool SDLogger::format(size_t unit_size)
 {
+    const constexpr char* SUB_TAG = "SD->format()";
     FRESULT res = FR_OK;
     const constexpr size_t work_buff_sz = 4096;
     void* work_buff = nullptr;
@@ -180,21 +193,21 @@ bool SDLogger::format(size_t unit_size)
 
     if (!initialized)
     {
-        ESP_LOGE(TAG, "Format Failure: Card not initialized.");
+        ESP_LOGE(TAG, "%s: Card not initialized.", SUB_TAG);
         return false;
     }
 
     res = f_mount(nullptr, drv, 0);
     if (res != FR_OK)
     {
-        ESP_LOGE(TAG, "Format Failure: Unmount failed (%d)", res);
+        ESP_LOGE(TAG, "%s: Unmount failed (%d)", SUB_TAG, res);
         return false;
     }
 
     work_buff = ff_memalloc(work_buff_sz);
     if (work_buff == nullptr)
     {
-        ESP_LOGE(TAG, "Format Failure: No heap memory available for work buffer.");
+        ESP_LOGE(TAG, "%s: No heap memory available for work buffer.", SUB_TAG);
         return false;
     }
 
@@ -205,7 +218,7 @@ bool SDLogger::format(size_t unit_size)
         pdrv = FF_DRV_NOT_USED;
         if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
         {
-            ESP_LOGE(TAG, "Format Failure: Max volumes already mounted, could not take sdmmc driver resource.");
+            ESP_LOGE(TAG, "%s: Max volumes already mounted, could not take sdmmc driver resource.", SUB_TAG);
             return false;
         }
 
@@ -219,7 +232,7 @@ bool SDLogger::format(size_t unit_size)
     res = f_fdisk(pdrv, plist, work_buff);
     if (res != FR_OK)
     {
-        print_fatfs_error(res, "Format Failure", "f_fdisk()");
+        print_fatfs_error(res, SUB_TAG, "f_fdisk()");
         free(work_buff);
 
         if (!mounted)
@@ -235,7 +248,7 @@ bool SDLogger::format(size_t unit_size)
 
     if (res != FR_OK)
     {
-        print_fatfs_error(res, "Format Failure", "f_mkfs()");
+        print_fatfs_error(res, SUB_TAG, "f_mkfs()");
 
         if (!mounted)
             ff_diskio_unregister(pdrv);
@@ -251,12 +264,14 @@ bool SDLogger::format(size_t unit_size)
 
 bool SDLogger::get_info(sd_info_t& sd_info)
 {
-    if (!usability_check("Get Info Failure"))
+    const constexpr char* SUB_TAG = "SD->get_info()";
+
+    if (!usability_check(SUB_TAG))
         return false;
 
     if (!info.initialized)
     {
-        ESP_LOGE(TAG, "Get Info Failure: Card info never loaded.");
+        ESP_LOGE(TAG, "%s: Card info never loaded.", SUB_TAG);
         return false;
     }
 
@@ -267,12 +282,14 @@ bool SDLogger::get_info(sd_info_t& sd_info)
 
 void SDLogger::print_info()
 {
-    if (!usability_check("Print Info Failure"))
+    const constexpr char* SUB_TAG = "SD->print_info()";
+
+    if (!usability_check(SUB_TAG))
         return;
 
     if (!info.initialized)
     {
-        ESP_LOGE(TAG, "Print Info Failure: Card info never loaded.");
+        ESP_LOGE(TAG, "%s: Card info never loaded.", SUB_TAG);
         return;
     }
 
@@ -294,7 +311,9 @@ void SDLogger::print_info()
 
 const char* SDLogger::get_root_path()
 {
-    if (!usability_check("Get Root Path Failure"))
+    const constexpr char* SUB_TAG = "SD->get_root_path()";
+
+    if (!usability_check(SUB_TAG))
         return nullptr;
     else
         return root_path;
@@ -320,19 +339,19 @@ bool SDLogger::posix_perms_2_fatfs_perms(const char* posix_perms, uint8_t& fatfs
     return false;
 }
 
-bool SDLogger::path_exists(const char* path, const char* SUBTAG, bool suppress_no_dir_warning)
+bool SDLogger::path_exists(const char* path, const char* SUB_TAG, bool suppress_no_dir_warning)
 {
     FRESULT res = FR_OK;
 
-    if (!usability_check(SUBTAG))
+    if (!usability_check(SUB_TAG))
         return false;
 
     res = f_stat(path, nullptr);
 
     if (res != FR_OK && res != FR_NO_FILE)
-        print_fatfs_error(res, SUBTAG, "f_stat()");
+        print_fatfs_error(res, SUB_TAG, "f_stat()");
     else if (res == FR_NO_FILE && !suppress_no_dir_warning)
-        ESP_LOGW(TAG, "%s: File or path does not exist.", SUBTAG);
+        ESP_LOGW(TAG, "%s: File or path does not exist.", SUB_TAG);
 
     return (res == FR_OK);
 }
@@ -409,38 +428,39 @@ void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
 
 bool SDLogger::open_file(SDFile file, const char* permissions)
 {
+    const constexpr char* SUB_TAG = "SD->open_file()";
     char full_path[100];
     FRESULT res;
     uint8_t fatfs_mode = 0;
 
-    if (!usability_check("Open File Failure"))
+    if (!usability_check(SUB_TAG))
         return false;
 
     if (!file || !file->initialized)
     {
-        ESP_LOGE(TAG, "Open File Failure: File not correctly initialized.");
+        ESP_LOGE(TAG, "%s: File not correctly initialized.", SUB_TAG);
         return false;
     }
 
     if (open_files.size() + 1 > max_open_files)
     {
-        ESP_LOGE(TAG, "Open File Failure: Max files already opened.");
+        ESP_LOGE(TAG, "%s: Max files already opened.", SUB_TAG);
         return false;
     }
 
     if (!posix_perms_2_fatfs_perms(permissions, fatfs_mode))
     {
-        ESP_LOGE(TAG, "Open File Failure: Invalid posix permission flag.");
+        ESP_LOGE(TAG, "%s: Invalid posix permission flag.", SUB_TAG);
         return false;
     }
 
     // build directory path if it does not exist
     if (strcmp(file->directory_path, "") != 0)
     {
-        if (!path_exists(file->directory_path, "Open File Failure", true))
+        if (!path_exists(file->directory_path, SUB_TAG, true))
             if (!build_path(file->directory_path))
             {
-                ESP_LOGE(TAG, "Open File Failure: Directory does not exist and path failed to build.");
+                ESP_LOGE(TAG, "%s: Directory does not exist and path failed to build.", SUB_TAG);
             }
     }
 
@@ -452,7 +472,7 @@ bool SDLogger::open_file(SDFile file, const char* permissions)
     res = f_open(&file->stream, file->path, fatfs_mode);
     if (res != FR_OK)
     {
-        print_fatfs_error(res, "Open File Failure", "f_open()");
+        print_fatfs_error(res, SUB_TAG, "f_open()");
         return false;
     }
 
@@ -465,16 +485,17 @@ bool SDLogger::open_file(SDFile file, const char* permissions)
 
 bool SDLogger::close_file(SDFile file)
 {
+    const constexpr char* SUB_TAG = "SD->close_file()";
     bool found = false;
     int idx = 0;
     FRESULT res = FR_OK;
 
-    if (!usability_check("Close File Failure"))
+    if (!usability_check(SUB_TAG))
         return false;
 
     if (!file || !file->initialized)
     {
-        ESP_LOGE(TAG, "Close File Failure: File not correctly initialized.");
+        ESP_LOGE(TAG, "%s: File not correctly initialized.", SUB_TAG);
         return false;
     }
 
@@ -487,7 +508,7 @@ bool SDLogger::close_file(SDFile file)
                 res = f_close(&file->stream);
                 if (res != FR_OK)
                 {
-                    print_fatfs_error(res, "Close File Failure", "f_close()");
+                    print_fatfs_error(res, SUB_TAG, "f_close()");
                 }
                 idx = i;
                 found = true;
@@ -502,7 +523,7 @@ bool SDLogger::close_file(SDFile file)
     }
     else
     {
-        ESP_LOGW(TAG, "Close File Failure:  No matching file found for path: %s", file->get_path());
+        ESP_LOGW(TAG, "%s:  No matching open file found for path: %s", SUB_TAG, file->get_path());
     }
 
     return found;
@@ -510,6 +531,7 @@ bool SDLogger::close_file(SDFile file)
 
 bool SDLogger::close_all_files()
 {
+    const constexpr char* SUB_TAG = "SD->close_all_files()";
     FRESULT res = FR_OK;
 
     for (SDFile& f : open_files)
@@ -518,7 +540,7 @@ bool SDLogger::close_all_files()
 
         if (res != FR_OK)
         {
-            print_fatfs_error(res, "Close All Files Failure", "f_close()");
+            print_fatfs_error(res, SUB_TAG, "f_close()");
             return false;
         }
 
@@ -533,9 +555,10 @@ bool SDLogger::close_all_files()
 
 bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warning)
 {
+    const constexpr char* SUB_TAG = "SD->create_directory()";
     FRESULT res = FR_OK;
 
-    if (!usability_check("Create Directory Failure"))
+    if (!usability_check(SUB_TAG))
         return false;
 
     res = f_mkdir(path);
@@ -549,19 +572,19 @@ bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warni
             // attempt to build the path if it doesn't exists
             if (!build_path(path))
             {
-                ESP_LOGE(TAG, "Create Directory Failure: Path does not exist and could not be built.");
+                ESP_LOGE(TAG, "%s: Path does not exist and could not be built.", SUB_TAG);
                 return false;
             }
             break;
 
         case FR_EXIST:
             if (!suppress_dir_exists_warning)
-                ESP_LOGW(TAG, "Create Directory Warning: Directory already exists.");
+                ESP_LOGW(TAG, "%s: Directory already exists.", SUB_TAG);
             return true;
             break;
 
         default:
-            print_fatfs_error(res, "Create Directory Failure", "f_mkdir()");
+            print_fatfs_error(res, SUB_TAG, "f_mkdir()");
             return false;
             break;
         }
@@ -572,13 +595,15 @@ bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warni
 
 bool SDLogger::file_exists(SDFile file)
 {
+    const constexpr char* SUB_TAG = "SD->file_exists()";
+
     if (!file || !file->initialized)
     {
-        ESP_LOGE(TAG, "File Existence Check Failure: File not correctly initialized.");
+        ESP_LOGE(TAG, "%s: File not correctly initialized.", SUB_TAG);
         return false;
     }
 
-    if (!path_exists(file->path, "File Existence Check Failure"))
+    if (!path_exists(file->path, SUB_TAG))
         return false;
 
     return true;
@@ -586,7 +611,9 @@ bool SDLogger::file_exists(SDFile file)
 
 bool SDLogger::path_exists(const char* path)
 {
-    if (!path_exists(path, "Path Existence Check Failure"))
+    const constexpr char* SUB_TAG = "SD->path_exists()";
+
+    if (!path_exists(path, SUB_TAG))
         return false;
 
     return true;
@@ -594,6 +621,8 @@ bool SDLogger::path_exists(const char* path)
 
 bool SDLogger::build_path(const char* path)
 {
+    const constexpr char* SUB_TAG = "SD->build_path()";
+
     const char* start = path;
     const char* end;
     size_t length;
@@ -610,7 +639,7 @@ bool SDLogger::build_path(const char* path)
 
             if (part == nullptr)
             {
-                ESP_LOGE(TAG, "Build Path Failure: No heap memory available to parse path.");
+                ESP_LOGE(TAG, "%s: No heap memory available to parse path.", SUB_TAG);
                 return false;
             }
 
@@ -620,8 +649,7 @@ bool SDLogger::build_path(const char* path)
             strcat(path_str, part);
             free(part);
 
-            ESP_LOGE(TAG, "dirPath 2: %s", path_str);
-            if (!path_exists(path_str, "Build path Failure", true))
+            if (!path_exists(path_str, SUB_TAG, true))
                 if (!create_directory(path_str, true))
                     return false;
         }
@@ -636,7 +664,7 @@ bool SDLogger::build_path(const char* path)
 
         if (part == nullptr)
         {
-            ESP_LOGE(TAG, "Build Path Failure: No heap memory available to parse path.");
+            ESP_LOGE(TAG, "%s: No heap memory available to parse path.", SUB_TAG);
             return false;
         }
 
@@ -655,21 +683,23 @@ bool SDLogger::build_path(const char* path)
 
 bool SDLogger::write(SDFile file, const char* data)
 {
+    const constexpr char* SUB_TAG = "SD->write()";
+
     FRESULT res = FR_OK;
     UINT bytes_written;
 
-    if (!usability_check("Write Failure"))
+    if (!usability_check(SUB_TAG))
         return false;
 
     if (!file || !file->initialized)
     {
-        ESP_LOGE(TAG, "Write Failure: File not correctly initialized.");
+        ESP_LOGE(TAG, "%s: File not correctly initialized.", SUB_TAG);
         return false;
     }
 
     if (!file->open)
     {
-        ESP_LOGE(TAG, "Write Failure: File not open.");
+        ESP_LOGE(TAG, "%s: File not open.", SUB_TAG);
         return false;
     }
 
@@ -677,7 +707,7 @@ bool SDLogger::write(SDFile file, const char* data)
     res = f_write(&file->stream, data, strlen(data), &bytes_written);
     if (res != FR_OK)
     {
-        print_fatfs_error(res, "Write Failure", "f_write()");
+        print_fatfs_error(res, SUB_TAG, "f_write()");
     }
 
     return true;
@@ -685,24 +715,26 @@ bool SDLogger::write(SDFile file, const char* data)
 
 bool SDLogger::write_line(SDFile file, const char* line)
 {
+    const constexpr char* SUB_TAG = "SD->write_line()";
+
     size_t line_length;
     size_t temp_buffer_sz;
     char* temp_buffer;
     FRESULT res;
     UINT bytes_written;
 
-    if (!usability_check("Write Line Failure"))
+    if (!usability_check(SUB_TAG))
         return false;
 
     if (!file || !file->initialized)
     {
-        ESP_LOGE(TAG, "Write Line Failure: File not correctly initialized.");
+        ESP_LOGE(TAG, "%s: File not correctly initialized.", SUB_TAG);
         return false;
     }
 
     if (!file->open)
     {
-        ESP_LOGE(TAG, "Write Line Failure: File not open.");
+        ESP_LOGE(TAG, "%s: File not open.", SUB_TAG);
         return false;
     }
 
@@ -712,7 +744,7 @@ bool SDLogger::write_line(SDFile file, const char* line)
 
     if (temp_buffer == nullptr)
     {
-        ESP_LOGE(TAG, "Write Line Failure: No heap memory available for line buffer.");
+        ESP_LOGE(TAG, "%s: No heap memory available for line buffer.", SUB_TAG);
         return false;
     }
 
@@ -726,7 +758,7 @@ bool SDLogger::write_line(SDFile file, const char* line)
 
     if (res != FR_OK)
     {
-        print_fatfs_error(res, "Write Line Failure", "f_write()");
+        print_fatfs_error(res, SUB_TAG, "f_write()");
         return false;
     }
 
@@ -811,22 +843,24 @@ bool SDLogger::parse_info_field(const char* info_buffer, const char* key, char* 
     return true;
 }
 
-bool SDLogger::load_sd_info()
+bool SDLogger::load_info()
 {
+    const constexpr char* SUB_TAG = "SD->load_info()";
+
     size_t buffer_sz = 1024;
     char* buffer = static_cast<char*>(malloc(buffer_sz));
     FILE* memstream;
 
     if (buffer == nullptr)
     {
-        ESP_LOGE(TAG, "Load Sd Info Failure: No heap memory available for info buffer.");
+        ESP_LOGE(TAG, "%s: No heap memory available for info buffer.", SUB_TAG);
         return false;
     }
 
     memstream = fmemopen(buffer, buffer_sz, "w");
     if (memstream == nullptr)
     {
-        ESP_LOGW(TAG, "Load Sd Info Failure: Failed to open memory stream.");
+        ESP_LOGW(TAG, "%s: Failed to open memory stream.", SUB_TAG);
         free(buffer);
         return false;
     }
@@ -837,7 +871,7 @@ bool SDLogger::load_sd_info()
     // parse info
     if (!parse_info(buffer))
     {
-        ESP_LOGW(TAG, "Load Sd Info: Failed to parse info buffer.");
+        ESP_LOGW(TAG, "%s: Failed to parse info buffer.", SUB_TAG);
         free(buffer);
         return false;
     }
@@ -893,17 +927,20 @@ SDLogger::File::~File()
 
 bool SDLogger::File::init(const char* path)
 {
+    const constexpr char* SUB_TAG = "SDFile->init()";
+
     // reset fields if re-initializing
     initialized = false;
     open = false;
 
-    initialized = path_parse(path);
+    initialized = path_parse(path, SUB_TAG);
 
     return initialized;
 }
 
-bool SDLogger::File::path_forbidden_char_check(const char* path)
+bool SDLogger::File::path_forbidden_char_check(const char* path, const char* SUB_TAG)
 {
+
     std::array<char, 8> forbidden_chars = {'\\', ':', '*', '?', '"', '<', '>', '|'};
     uint8_t period_count = 0;
 
@@ -914,14 +951,14 @@ bool SDLogger::File::path_forbidden_char_check(const char* path)
 
         if (period_count > 1)
         {
-            ESP_LOGE(TAG, "File Initialization Failure: Invalid path, multiple '.' characters in path name.");
+            ESP_LOGE(TAG, "%s: Invalid path, multiple '.' characters in path name.", SUB_TAG);
             return true;
         }
 
         for (const char forbidden_char : forbidden_chars)
             if (path[i] == forbidden_char)
             {
-                ESP_LOGE(TAG, "File Initialization Failure: Invalid path, forbidden characters in path name.");
+                ESP_LOGE(TAG, "%s: Invalid path, forbidden characters in path name.", SUB_TAG);
                 return true;
             }
     }
@@ -940,17 +977,17 @@ bool SDLogger::File::path_part_period_check(const char* part)
     return false;
 }
 
-bool SDLogger::File::create_path(const char* path)
+bool SDLogger::File::create_path(const char* path, const char* SUB_TAG)
 {
     size_t length = strlen(path);
 
-    if (path_forbidden_char_check(path))
+    if (path_forbidden_char_check(path, SUB_TAG))
         return false;
 
     this->path = new char[length + 1];
     if (this->path == nullptr)
     {
-        ESP_LOGE(TAG, "File Initialization Failure: No heap memory available for path.");
+        ESP_LOGE(TAG, "%s: No heap memory available for path.", SUB_TAG);
         return false;
     }
 
@@ -961,12 +998,12 @@ bool SDLogger::File::create_path(const char* path)
     return true;
 }
 
-bool SDLogger::File::create_directory_path(char* dir_path)
+bool SDLogger::File::create_directory_path(char* dir_path, const char* SUB_TAG)
 {
     this->directory_path = new char[strlen(dir_path) + 1];
     if (this->directory_path == nullptr)
     {
-        ESP_LOGE(TAG, "File Initialization Failure: No heap memory available for directory path.");
+        ESP_LOGE(TAG, "%s: No heap memory available for directory path.", SUB_TAG);
         return false;
     }
 
@@ -977,7 +1014,7 @@ bool SDLogger::File::create_directory_path(char* dir_path)
     return true;
 }
 
-bool SDLogger::File::path_tokenize_parts(const char* path, char* dir_path, char* file_name)
+bool SDLogger::File::path_tokenize_parts(const char* path, char* dir_path, char* file_name, const char* SUB_TAG)
 {
     const char* start = nullptr;
     const char* end = nullptr;
@@ -987,7 +1024,7 @@ bool SDLogger::File::path_tokenize_parts(const char* path, char* dir_path, char*
     if (strlen(path) > 0)
         while ((end = strchr(start, '/')) != nullptr)
         {
-            if (!path_tokenize_part(static_cast<size_t>(end - start), dir_path, start))
+            if (!path_tokenize_part(static_cast<size_t>(end - start), dir_path, start, SUB_TAG))
                 return false;
 
             start = end + 1;
@@ -996,12 +1033,12 @@ bool SDLogger::File::path_tokenize_parts(const char* path, char* dir_path, char*
     // check for final part
     if (strlen(start) > 0)
     {
-        if (!path_tokenize_part(strlen(start) + 1, file_name, start))
+        if (!path_tokenize_part(strlen(start) + 1, file_name, start, SUB_TAG))
             return false;
 
         if (!path_part_period_check(file_name))
         {
-            ESP_LOGE(TAG, "File Initialization Failure: Invalid path, '.' character must be final part of file path to indicate file extension.");
+            ESP_LOGE(TAG, "%s: Invalid path, '.' character must be final part of file path to indicate file extension.", SUB_TAG);
             return false;
         }
     }
@@ -1009,7 +1046,7 @@ bool SDLogger::File::path_tokenize_parts(const char* path, char* dir_path, char*
     return true;
 }
 
-bool SDLogger::File::path_tokenize_part(const size_t part_length, char* output_path, const char* start)
+bool SDLogger::File::path_tokenize_part(const size_t part_length, char* output_path, const char* start, const char* SUB_TAG)
 {
     char* part;
 
@@ -1017,7 +1054,7 @@ bool SDLogger::File::path_tokenize_part(const size_t part_length, char* output_p
 
     if (part == nullptr)
     {
-        ESP_LOGE(TAG, "File Initialization Failure: No heap memory available for parsing directory path.");
+        ESP_LOGE(TAG, "%s: No heap memory available for parsing directory path.", SUB_TAG);
         return false;
     }
 
@@ -1031,19 +1068,19 @@ bool SDLogger::File::path_tokenize_part(const size_t part_length, char* output_p
     return true;
 }
 
-bool SDLogger::File::path_parse(const char* path)
+bool SDLogger::File::path_parse(const char* path, const char* SUB_TAG)
 {
     char file_name[50] = "";
     char dir_path[100] = "";
 
-    if (!create_path(path))
+    if (!create_path(path, SUB_TAG))
         return false;
 
-    if (!path_tokenize_parts(path, dir_path, file_name))
+    if (!path_tokenize_parts(path, dir_path, file_name, SUB_TAG))
         return false;
 
     // copy directory path (w/o root directory) to file directory member
-    if (!create_directory_path(dir_path))
+    if (!create_directory_path(dir_path, SUB_TAG))
         return false;
 
     return true;

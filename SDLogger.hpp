@@ -88,13 +88,13 @@ class SDLogger
 
             private:
                 File();
-                bool path_tokenize_parts(const char* path, char* dir_path, char* file_name);
-                bool path_tokenize_part(const size_t part_length, char* output_path, const char* start);
-                bool path_parse(const char* path);
-                bool path_forbidden_char_check(const char* path);
+                bool path_tokenize_parts(const char* path, char* dir_path, char* file_name, const char *SUB_TAG);
+                bool path_tokenize_part(const size_t part_length, char* output_path, const char* start, const char *SUB_TAG);
+                bool path_parse(const char* path, const char *SUB_TAG);
+                bool path_forbidden_char_check(const char* path, const char *SUB_TAG);
                 bool path_part_period_check(const char* part);
-                bool create_path(const char* path);
-                bool create_directory_path(char* dir_path);
+                bool create_path(const char* path, const char *SUB_TAG);
+                bool create_directory_path(char* dir_path, const char *SUB_TAG);
                 bool initialized;
                 bool open;
                 FIL stream;
@@ -143,7 +143,7 @@ class SDLogger
         static const constexpr size_t MAX_ROOT_PATH_SZ = 40;
         static const constexpr char* TAG = "SDLogger";
 
-        bool load_sd_info();
+        bool load_info();
         bool parse_info(const char* info_buffer);
         bool parse_info_field(const char* info_buffer, const char* key, char* output, size_t output_sz);
         bool usability_check(const char* SUB_TAG);
@@ -151,7 +151,7 @@ class SDLogger
         void fatfs_res_to_str(FRESULT f_res, char* dest_str);
         void print_fatfs_error(FRESULT f_res, const char* SUBTAG, const char* fatfs_fxn);
         bool posix_perms_2_fatfs_perms(const char *posix_perms, uint8_t &fatfs_perms);
-        bool path_exists(const char* path, const char *SUBTAG, bool suppress_no_dir_warning = false);
+        bool path_exists(const char* path, const char *SUB_TAG, bool suppress_no_dir_warning = false);
         bool initialized;
         bool mounted;
         sd_logger_config_t cfg;
