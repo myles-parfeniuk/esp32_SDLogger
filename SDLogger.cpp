@@ -111,15 +111,8 @@ bool SDLogger::mount(size_t unit_size, int max_open_files, const char* path)
 
     strcpy(root_path, path);
 
-    pdrv = FF_DRV_NOT_USED;
-    if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
-    {
-        ESP_LOGE(TAG, "%s: Max volumes already mounted.", SUB_TAG);
-        return false;
-    }
-
-    ff_diskio_register_sdmmc(pdrv, &card);
-    drv[0] = static_cast<char>('0' + pdrv);
+    if(!get_and_register_free_drive(SUB_TAG))
+        return false; 
 
     err = esp_vfs_fat_register(root_path, drv, max_open_files, &fs);
     if (err != ESP_OK)
@@ -215,15 +208,8 @@ bool SDLogger::format(size_t unit_size)
 
     if (!mounted)
     {
-        pdrv = FF_DRV_NOT_USED;
-        if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
-        {
-            ESP_LOGE(TAG, "%s: Max volumes already mounted, could not take sdmmc driver resource.", SUB_TAG);
+        if(!get_and_register_free_drive(SUB_TAG))
             return false;
-        }
-
-        ff_diskio_register_sdmmc(pdrv, &card);
-        drv[0] = static_cast<char>('0' + pdrv);
     }
 
     // partition sd card
@@ -354,6 +340,21 @@ bool SDLogger::path_exists(const char* path, const char* SUB_TAG, bool suppress_
         ESP_LOGW(TAG, "%s: File or path does not exist.", SUB_TAG);
 
     return (res == FR_OK);
+}
+
+bool SDLogger::get_and_register_free_drive(const char* SUB_TAG)
+{
+    pdrv = FF_DRV_NOT_USED;
+    if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == FF_DRV_NOT_USED)
+    {
+        ESP_LOGE(TAG, "%s: Max volumes already mounted, could not take sdmmc driver resource.", SUB_TAG);
+        return false;
+    }
+
+    ff_diskio_register_sdmmc(pdrv, &card);
+    drv[0] = static_cast<char>('0' + pdrv);
+
+    return true;
 }
 
 void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
@@ -629,13 +630,13 @@ bool SDLogger::delete_file(SDFile file)
 
 bool SDLogger::delete_directory(const char* path)
 {
-    //todo:
-    //1) check if directory is empty
-    //2) if it is proceed to 4, else 3
-    //3) delete any files or sub_directories within the passed directory path while checking for errors (ie a file is open)
-    //4) delete the passed directory
-    
-    //this is the reverse of the the build_path function
+    // todo:
+    // 1) check if directory is empty
+    // 2) if it is proceed to 4, else 3
+    // 3) delete any files or sub_directories within the passed directory path while checking for errors (ie a file is open)
+    // 4) delete the passed directory
+
+    // this is the reverse of the the build_path function
     return true;
 }
 

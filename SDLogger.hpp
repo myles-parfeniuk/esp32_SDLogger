@@ -146,6 +146,7 @@ class SDLogger
         void print_fatfs_error(FRESULT f_res, const char* SUBTAG, const char* fatfs_fxn);
         bool posix_perms_2_fatfs_perms(const char* posix_perms, uint8_t& fatfs_perms);
         bool path_exists(const char* path, const char* SUB_TAG, bool suppress_no_dir_warning = false);
+        bool get_and_register_free_drive(const char *SUB_TAG); 
         bool initialized;
         bool mounted;
         sd_logger_config_t cfg;
