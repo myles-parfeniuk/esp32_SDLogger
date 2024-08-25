@@ -673,7 +673,7 @@ bool SDLogger::build_path(const char* path)
         strcat(path_str, part);
         free(part);
 
-        if (!path_exists(path_str))
+        if (!path_exists(path_str, SUB_TAG, true))
             if (!create_directory(path_str, true))
                 return false;
     }
@@ -981,6 +981,9 @@ bool SDLogger::File::create_path(const char* path, const char* SUB_TAG)
 {
     size_t length = strlen(path);
 
+    if(this->path)
+        delete[] this->path;
+
     if (path_forbidden_char_check(path, SUB_TAG))
         return false;
 
@@ -1000,7 +1003,11 @@ bool SDLogger::File::create_path(const char* path, const char* SUB_TAG)
 
 bool SDLogger::File::create_directory_path(char* dir_path, const char* SUB_TAG)
 {
+    if(this->directory_path)
+        delete[] this->directory_path;
+
     this->directory_path = new char[strlen(dir_path) + 1];
+
     if (this->directory_path == nullptr)
     {
         ESP_LOGE(TAG, "%s: No heap memory available for directory path.", SUB_TAG);
