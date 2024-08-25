@@ -593,6 +593,52 @@ bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warni
     return true;
 }
 
+bool SDLogger::delete_file(SDFile file)
+{
+    const constexpr char* SUB_TAG = "SD->delete_file()";
+    FRESULT res = FR_OK;
+
+    if (!usability_check(SUB_TAG))
+        return false;
+
+    if (!file || !file->initialized)
+    {
+        ESP_LOGE(TAG, "%s: File not correctly initialized.", SUB_TAG);
+        return false;
+    }
+
+    if (file->open)
+    {
+        ESP_LOGE(TAG, "%s: Close file before deleting.", SUB_TAG);
+        return false;
+    }
+
+    if (!path_exists(file->path, SUB_TAG))
+        return false;
+
+    res = f_unlink(file->path);
+
+    if (res != FR_OK)
+    {
+        print_fatfs_error(res, SUB_TAG, "f_unlink()");
+        return false;
+    }
+
+    return true;
+}
+
+bool SDLogger::delete_directory(const char* path)
+{
+    //todo:
+    //1) check if directory is empty
+    //2) if it is proceed to 4, else 3
+    //3) delete any files or sub_directories within the passed directory path while checking for errors (ie a file is open)
+    //4) delete the passed directory
+    
+    //this is the reverse of the the build_path function
+    return true;
+}
+
 bool SDLogger::file_exists(SDFile file)
 {
     const constexpr char* SUB_TAG = "SD->file_exists()";
@@ -981,7 +1027,7 @@ bool SDLogger::File::create_path(const char* path, const char* SUB_TAG)
 {
     size_t length = strlen(path);
 
-    if(this->path)
+    if (this->path)
         delete[] this->path;
 
     if (path_forbidden_char_check(path, SUB_TAG))
@@ -1003,7 +1049,7 @@ bool SDLogger::File::create_path(const char* path, const char* SUB_TAG)
 
 bool SDLogger::File::create_directory_path(char* dir_path, const char* SUB_TAG)
 {
-    if(this->directory_path)
+    if (this->directory_path)
         delete[] this->directory_path;
 
     this->directory_path = new char[strlen(dir_path) + 1];

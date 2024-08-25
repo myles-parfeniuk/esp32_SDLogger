@@ -69,7 +69,6 @@ typedef struct sd_info_t
         }
 } sd_info_t;
 
-
 class SDLogger
 {
     public:
@@ -88,13 +87,13 @@ class SDLogger
 
             private:
                 File();
-                bool path_tokenize_parts(const char* path, char* dir_path, char* file_name, const char *SUB_TAG);
-                bool path_tokenize_part(const size_t part_length, char* output_path, const char* start, const char *SUB_TAG);
-                bool path_parse(const char* path, const char *SUB_TAG);
-                bool path_forbidden_char_check(const char* path, const char *SUB_TAG);
+                bool path_tokenize_parts(const char* path, char* dir_path, char* file_name, const char* SUB_TAG);
+                bool path_tokenize_part(const size_t part_length, char* output_path, const char* start, const char* SUB_TAG);
+                bool path_parse(const char* path, const char* SUB_TAG);
+                bool path_forbidden_char_check(const char* path, const char* SUB_TAG);
                 bool path_part_period_check(const char* part);
-                bool create_path(const char* path, const char *SUB_TAG);
-                bool create_directory_path(char* dir_path, const char *SUB_TAG);
+                bool create_path(const char* path, const char* SUB_TAG);
+                bool create_directory_path(char* dir_path, const char* SUB_TAG);
                 bool initialized;
                 bool open;
                 FIL stream;
@@ -113,14 +112,16 @@ class SDLogger
         bool mount(size_t unit_size = 16 * 1024, int max_open_files = 5, const char* path = "/sdcard");
         bool unmount();
         bool format(size_t unit_size = 16 * 1024);
-        bool open_file(SDFile file, const char *permissions = "a+");
+        bool open_file(SDFile file, const char* permissions = "a+");
         bool close_file(SDFile file);
         bool close_all_files();
-        bool create_directory(const char* path, bool suppress_dir_exists_warning = false);
-        bool file_exists(SDFile file);
-        bool path_exists(const char *path);
         bool write(SDFile file, const char* data);
         bool write_line(SDFile file, const char* line);
+        bool create_directory(const char* path, bool suppress_dir_exists_warning = false);
+        bool delete_file(SDFile file);
+        bool delete_directory(const char *path);
+        bool file_exists(SDFile file);
+        bool path_exists(const char* path);
         bool get_info(sd_info_t& sd_info);
         void print_info();
         bool is_initialized();
@@ -128,16 +129,9 @@ class SDLogger
         const char* get_root_path();
 
     private:
-        const std::unordered_map<const char *, uint8_t> permission_flag_map = {
-                    {"r", FA_READ},
-                    {"r+", FA_READ | FA_WRITE},
-                    {"w", FA_CREATE_ALWAYS | FA_WRITE},
-                    {"w+", FA_CREATE_ALWAYS | FA_WRITE | FA_READ},
-                    {"a", FA_OPEN_APPEND | FA_WRITE},
-                    {"a+", FA_OPEN_APPEND | FA_WRITE | FA_READ},
-                    {"wx", FA_CREATE_NEW | FA_WRITE},
-                    {"w+x", FA_CREATE_NEW | FA_WRITE | FA_READ}
-        };
+        const std::unordered_map<const char*, uint8_t> permission_flag_map = {{"r", FA_READ}, {"r+", FA_READ | FA_WRITE},
+                {"w", FA_CREATE_ALWAYS | FA_WRITE}, {"w+", FA_CREATE_ALWAYS | FA_WRITE | FA_READ}, {"a", FA_OPEN_APPEND | FA_WRITE},
+                {"a+", FA_OPEN_APPEND | FA_WRITE | FA_READ}, {"wx", FA_CREATE_NEW | FA_WRITE}, {"w+x", FA_CREATE_NEW | FA_WRITE | FA_READ}};
 
         static const constexpr size_t SD_SECTOR_SZ = 512U;
         static const constexpr size_t MAX_ROOT_PATH_SZ = 40;
@@ -150,8 +144,8 @@ class SDLogger
         bool build_path(const char* path);
         void fatfs_res_to_str(FRESULT f_res, char* dest_str);
         void print_fatfs_error(FRESULT f_res, const char* SUBTAG, const char* fatfs_fxn);
-        bool posix_perms_2_fatfs_perms(const char *posix_perms, uint8_t &fatfs_perms);
-        bool path_exists(const char* path, const char *SUB_TAG, bool suppress_no_dir_warning = false);
+        bool posix_perms_2_fatfs_perms(const char* posix_perms, uint8_t& fatfs_perms);
+        bool path_exists(const char* path, const char* SUB_TAG, bool suppress_no_dir_warning = false);
         bool initialized;
         bool mounted;
         sd_logger_config_t cfg;
