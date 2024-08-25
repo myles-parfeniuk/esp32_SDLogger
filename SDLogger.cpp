@@ -174,7 +174,6 @@ bool SDLogger::is_initialized()
 bool SDLogger::format(size_t unit_size)
 {
     FRESULT res = FR_OK;
-    esp_err_t err = ESP_OK;
     const constexpr size_t work_buff_sz = 4096;
     void* work_buff = nullptr;
     size_t alloc_unit_sz = 0;
@@ -308,6 +307,36 @@ void SDLogger::print_fatfs_error(FRESULT f_res, const char* SUBTAG, const char* 
     ESP_LOGE(TAG, "%s: %s did not return FR_OK, FRESULT: %s", SUBTAG, fatfs_fxn, res_str);
 }
 
+bool SDLogger::posix_perms_2_fatfs_perms(const char* posix_perms, uint8_t& fatfs_perms)
+{
+    auto idx = permission_flag_map.find(posix_perms);
+
+    if (idx != permission_flag_map.end())
+    {
+        fatfs_perms = idx->second;
+        return true;
+    }
+
+    return false;
+}
+
+bool SDLogger::path_exists(const char* path, const char* SUBTAG, bool suppress_no_dir_warning)
+{
+    FRESULT res = FR_OK;
+
+    if (!usability_check(SUBTAG))
+        return false;
+
+    res = f_stat(path, nullptr);
+
+    if (res != FR_OK && res != FR_NO_FILE)
+        print_fatfs_error(res, SUBTAG, "f_stat()");
+    else if (res == FR_NO_FILE && !suppress_no_dir_warning)
+        ESP_LOGW(TAG, "%s: File or path does not exist.", SUBTAG);
+
+    return (res == FR_OK);
+}
+
 void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
 {
     switch (f_res)
@@ -378,10 +407,11 @@ void SDLogger::fatfs_res_to_str(FRESULT f_res, char* dest_str)
     }
 }
 
-bool SDLogger::open_file(SDFile file)
+bool SDLogger::open_file(SDFile file, const char* permissions)
 {
     char full_path[100];
     FRESULT res;
+    uint8_t fatfs_mode = 0;
 
     if (!usability_check("Open File Failure"))
         return false;
@@ -398,10 +428,16 @@ bool SDLogger::open_file(SDFile file)
         return false;
     }
 
+    if (!posix_perms_2_fatfs_perms(permissions, fatfs_mode))
+    {
+        ESP_LOGE(TAG, "Open File Failure: Invalid posix permission flag.");
+        return false;
+    }
+
     // build directory path if it does not exist
     if (strcmp(file->directory_path, "") != 0)
     {
-        if (!path_exists(file->directory_path))
+        if (!path_exists(file->directory_path, "Open File Failure", true))
             if (!build_path(file->directory_path))
             {
                 ESP_LOGE(TAG, "Open File Failure: Directory does not exist and path failed to build.");
@@ -413,7 +449,7 @@ bool SDLogger::open_file(SDFile file)
     strcat(full_path, file->path);
 
     // open the file
-    res = f_open(&file->stream, file->path, FA_WRITE | FA_CREATE_ALWAYS);
+    res = f_open(&file->stream, file->path, fatfs_mode);
     if (res != FR_OK)
     {
         print_fatfs_error(res, "Open File Failure", "f_open()");
@@ -534,16 +570,26 @@ bool SDLogger::create_directory(const char* path, bool suppress_dir_exists_warni
     return true;
 }
 
-bool SDLogger::path_exists(const char* path)
+bool SDLogger::file_exists(SDFile file)
 {
-    if (!usability_check("Path Existence Check Failure"))
+    if (!file || !file->initialized)
+    {
+        ESP_LOGE(TAG, "File Existence Check Failure: File not correctly initialized.");
+        return false;
+    }
+
+    if (!path_exists(file->path, "File Existence Check Failure"))
         return false;
 
-    FRESULT res = FR_OK;
+    return true;
+}
 
-    res = f_stat(path, nullptr);
+bool SDLogger::path_exists(const char* path)
+{
+    if (!path_exists(path, "Path Existence Check Failure"))
+        return false;
 
-    return (res == FR_OK);
+    return true;
 }
 
 bool SDLogger::build_path(const char* path)
@@ -574,7 +620,8 @@ bool SDLogger::build_path(const char* path)
             strcat(path_str, part);
             free(part);
 
-            if (!path_exists(path_str))
+            ESP_LOGE(TAG, "dirPath 2: %s", path_str);
+            if (!path_exists(path_str, "Build path Failure", true))
                 if (!create_directory(path_str, true))
                     return false;
         }
@@ -884,8 +931,6 @@ bool SDLogger::File::path_forbidden_char_check(const char* path)
 
 bool SDLogger::File::path_part_period_check(const char* part)
 {
-    uint8_t period_count = 0;
-
     for (size_t i = 0; i < strlen(part); i++)
     {
         if (part[i] == '.')
@@ -918,15 +963,16 @@ bool SDLogger::File::create_path(const char* path)
 
 bool SDLogger::File::create_directory_path(char* dir_path)
 {
-    this->directory_path = new char[strlen(dir_path)];
+    this->directory_path = new char[strlen(dir_path) + 1];
     if (this->directory_path == nullptr)
     {
         ESP_LOGE(TAG, "File Initialization Failure: No heap memory available for directory path.");
         return false;
     }
 
-    if (strcmp(dir_path, "") != 0)
-        strcpy(this->directory_path, dir_path);
+    this->directory_path[strlen(dir_path) + 1] = '\0';
+
+    strcpy(this->directory_path, dir_path);
 
     return true;
 }

@@ -6,6 +6,7 @@
 #include <vector>
 #include <array>
 #include <memory>
+#include <unordered_map>
 
 // esp-idf includes
 #include "driver/gpio.h"
@@ -68,6 +69,7 @@ typedef struct sd_info_t
         }
 } sd_info_t;
 
+
 class SDLogger
 {
     public:
@@ -111,11 +113,12 @@ class SDLogger
         bool mount(size_t unit_size = 16 * 1024, int max_open_files = 5, const char* path = "/sdcard");
         bool unmount();
         bool format(size_t unit_size = 16 * 1024);
-        bool open_file(SDFile file);
+        bool open_file(SDFile file, const char *permissions = "a+");
         bool close_file(SDFile file);
         bool close_all_files();
         bool create_directory(const char* path, bool suppress_dir_exists_warning = false);
-        bool path_exists(const char* path);
+        bool file_exists(SDFile file);
+        bool path_exists(const char *path);
         bool write(SDFile file, const char* data);
         bool write_line(SDFile file, const char* line);
         bool get_info(sd_info_t& sd_info);
@@ -125,6 +128,17 @@ class SDLogger
         const char* get_root_path();
 
     private:
+        const std::unordered_map<const char *, uint8_t> permission_flag_map = {
+                    {"r", FA_READ},
+                    {"r+", FA_READ | FA_WRITE},
+                    {"w", FA_CREATE_ALWAYS | FA_WRITE},
+                    {"w+", FA_CREATE_ALWAYS | FA_WRITE | FA_READ},
+                    {"a", FA_OPEN_APPEND | FA_WRITE},
+                    {"a+", FA_OPEN_APPEND | FA_WRITE | FA_READ},
+                    {"wx", FA_CREATE_NEW | FA_WRITE},
+                    {"w+x", FA_CREATE_NEW | FA_WRITE | FA_READ}
+        };
+
         static const constexpr size_t SD_SECTOR_SZ = 512U;
         static const constexpr size_t MAX_ROOT_PATH_SZ = 40;
         static const constexpr char* TAG = "SDLogger";
@@ -136,6 +150,8 @@ class SDLogger
         bool build_path(const char* path);
         void fatfs_res_to_str(FRESULT f_res, char* dest_str);
         void print_fatfs_error(FRESULT f_res, const char* SUBTAG, const char* fatfs_fxn);
+        bool posix_perms_2_fatfs_perms(const char *posix_perms, uint8_t &fatfs_perms);
+        bool path_exists(const char* path, const char *SUBTAG, bool suppress_no_dir_warning = false);
         bool initialized;
         bool mounted;
         sd_logger_config_t cfg;
